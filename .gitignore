@@ -1,0 +1,7 @@
+/venv/
+model_engine/face_db/
+model_engine/.env
+model_engine/*.jpg
+model_engine/*.webp
+model_engine/*.png
+model_engine/*.jpeg

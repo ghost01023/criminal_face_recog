@@ -1,0 +1,20 @@
+install and add micromamba to systm PATH
+
+run: 
+
+micromamba create -n ort \
+  python=3.10 \
+  cudatoolkit=11.8 \
+  cudnn \
+  onnxruntime=1.16.3 \
+  numpy \
+  opencv \
+  -c conda-forge
+
+micromamba install -c nvidia cuda-nvcc cuda-runtime cuda-libraries-dev
+
+
+micromamba activate ort
+
+
+python main.py
