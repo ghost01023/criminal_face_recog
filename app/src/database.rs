@@ -2,6 +2,7 @@ use crate::entities::{criminal, criminal_photo};
 use chrono::Utc;
 use sea_orm::*;
 
+#[derive(Debug, Clone)]
 pub struct CriminalDB {
     pub connection: DatabaseConnection,
 }

@@ -1,108 +1,15 @@
-/*use app::db::CriminalDB;
-use app::entities::criminal_photo;
-use iced::widget::{container, text};
-use iced::{Element, Task};
-use sea_orm::Database;
+use app::database::CriminalDB;
+use app::pages::criminal_registry::RegistryPage;
+use app::Message;
 
-fn main() -> iced::Result {
-    iced::application("Criminal Photo Viewer", update, view).run_with(|| {
-        (
-            App {
-                photos: None,
-                status: Some("Attempting to load...".to_string()),
-            },
-            Task::perform(load_photos(), Message::PhotosLoaded),
-        )
-    })
-}
+use app::Page;
+use iced::{Application, Command, Element, Settings, Theme};
+use rfd;
 
-struct App {
-    photos: Option<Vec<criminal_photo::Model>>,
-    status: Option<String>,
-}
-
-impl Default for App {
-    fn default() -> Self {
-        Self {
-            photos: None,
-            status: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-enum Message {
-    PhotosLoaded(Result<Vec<criminal_photo::Model>, String>),
-}
-
-fn update(app: &mut App, message: Message) -> Task<Message> {
-    match message {
-        Message::PhotosLoaded(res) => match res {
-            Ok(photos) => {
-                if photos.is_empty() {
-                    app.photos = None;
-                    app.status = Some("No photos were found".to_string());
-                } else {
-                    app.photos = Some(photos);
-                    app.status = Some("Photos loaded".to_string());
-                }
-            }
-            Err(err) => {
-                app.photos = None;
-                app.status = Some(err);
-            }
-        },
-    }
-    Task::none()
-}
-
-fn view(app: &App) -> Element<Message> {
-    println!("Status changed");
-    println!("{}", app.status.as_deref().unwrap_or(""));
-    match &app.status {
-        Some(status) => container(text(format!("{}", status.to_uppercase())))
-            .padding(20)
-            .into(),
-        None => container(text("No Photos present")).padding(20).into(),
-    }
-}
-
-/// Async DB loader
-async fn load_photos() -> Result<Vec<criminal_photo::Model>, String> {
-    let criminal_db = CriminalDB::new("mysql://root:@localhost/criminal_recognizer")
-        .await
-        .map_err(|e| format!("DB connection failed: {}", e))?;
-
-    criminal_db
-        .get_criminal_photos(1) // example criminal_id
-        .await
-        .map_err(|e| format!("Failed to fetch photos: {}", e))
-}*/
-
-use iced::{
-    widget::{column, container, Space},
-    Alignment, Application, Command, Element, Length, Settings, Theme,
-};
-
-// Import your components
-mod components; // Assuming they are in a components/ folder with a mod.rs
-use components::button::GlassButton;
-use components::image_viewer::GlassImageViewer;
-use components::input_label::GlassInputLabel;
-use components::text_input::GlassTextInput;
-
-pub fn main() -> iced::Result {
-    GlassmorphismApp::run(Settings::default())
-}
-
-struct GlassmorphismApp {
-    input_value: String,
-}
-
-#[derive(Debug, Clone)]
-enum Message {
-    InputChanged(String),
-    ButtonPressed,
+pub struct GlassmorphismApp {
+    current_page: Page,
+    registry_state: RegistryPage, // The form data lives here
+    db: Option<std::sync::Arc<CriminalDB>>,
 }
 
 impl Application for GlassmorphismApp {
@@ -110,84 +17,149 @@ impl Application for GlassmorphismApp {
     type Message = Message;
     type Theme = Theme;
     type Flags = ();
-
     fn new(_flags: ()) -> (Self, Command<Message>) {
+        let db_url = "mysql://root:@localhost:3306/criminal_recognizer".to_string();
+
         (
-            GlassmorphismApp {
-                input_value: String::new(),
+            Self {
+                current_page: Page::Registry,
+                registry_state: RegistryPage::default(),
+                db: None,
             },
-            Command::none(),
+            Command::perform(
+                async move {
+                    // Map the internal database result to a clean Result<Arc, String>
+                    CriminalDB::new(&db_url)
+                        .await
+                        .map(std::sync::Arc::new)
+                        .map_err(|e| e.to_string())
+                },
+                // FIX: Use a closure instead of passing the Enum variant directly
+                |result| Message::DbConnected(result),
+            ),
         )
     }
-
     fn title(&self) -> String {
-        String::from("Glass Morphism UI")
+        String::from("Criminal Recognizer")
     }
 
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
-            Message::InputChanged(value) => {
-                self.input_value = value;
+            Message::GoTo(page) => self.current_page = page,
+
+            // Route NameChanged to the Registry state
+            Message::NameChanged(s) => {
+                self.registry_state.name = s;
+                self.registry_state.name_error = false;
             }
-            Message::ButtonPressed => {
-                println!("Button pressed! Input: {}", self.input_value);
+
+            Message::DbConnected(Ok(db_arc)) => {
+                self.db = Some(db_arc);
+                println!("Connected to Database.");
             }
+            Message::DbConnected(Err(e)) => {
+                eprintln!("Database Connection Error: {}", e);
+            }
+            Message::SubmitForm => {
+                if self.registry_state.name.trim().is_empty() {
+                    self.registry_state.name_error = true;
+                    return Command::none();
+                }
+
+                // Check if DB is ready
+                let Some(db) = self.db.clone() else {
+                    eprintln!("Database not connected yet.");
+                    return Command::none();
+                };
+
+                // Prepare data for the async block
+                let name = self.registry_state.name.clone();
+                let f_name = if self.registry_state.fathers_name.is_empty() {
+                    None
+                } else {
+                    Some(self.registry_state.fathers_name.clone())
+                };
+                let loc = if self.registry_state.arrested_location.is_empty() {
+                    None
+                } else {
+                    Some(self.registry_state.arrested_location.clone())
+                };
+                let crimes = self.registry_state.no_of_crimes.parse::<u32>().unwrap_or(1);
+                let photo_paths = self.registry_state.selected_images.clone();
+
+                return Command::perform(
+                    async move {
+                        // 1. Add Criminal and get ID
+                        let criminal_id = db
+                            .add_criminal(name, f_name, loc, crimes)
+                            .await
+                            .map_err(|e| e.to_string())?;
+
+                        // 2. Add each photo
+                        for path in photo_paths {
+                            if let Ok(bytes) = std::fs::read(path) {
+                                db.add_criminal_photo(criminal_id, bytes)
+                                    .await
+                                    .map_err(|e| e.to_string())?;
+                            }
+                        }
+                        Ok(criminal_id)
+                    },
+                    Message::SaveResult,
+                );
+            }
+
+            Message::SaveResult(Ok(id)) => {
+                println!("Criminal successfully saved with ID: {}", id);
+                // Optionally clear the form here
+                self.registry_state = RegistryPage::default();
+            }
+            Message::SaveResult(Err(e)) => {
+                eprintln!("Failed to save criminal: {}", e);
+            }
+
+            // RFD File Picker handling
+            Message::OpenFilePicker => {
+                return Command::perform(
+                    async {
+                        rfd::FileDialog::new()
+                            .add_filter("Images", &["jpg", "png", "jpeg"])
+                            .pick_files()
+                            .unwrap_or_default()
+                    },
+                    Message::FilesSelected,
+                );
+            }
+            Message::FilesSelected(paths) => {
+                self.registry_state.selected_images = paths
+                    .into_iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect();
+                self.registry_state.current_img_idx = 0;
+            }
+            _ => {}
         }
         Command::none()
     }
 
     fn view(&self) -> Element<Message> {
-        // Main Title with Neon Green
-        let title = GlassInputLabel::new("Criminal Face Recognizer")
-            .size(48)
-            .color([0.4, 0.9, 0.5]);
-
-        // Subtitle (Default color)
-        let subtitle = GlassInputLabel::new("using FaceShift")
-            .size(32)
-            .color([0.9, 0.9, 0.9]);
-
-        // Description with muted grey
-        let description = GlassInputLabel::new("Isolated Objects & Editable Colors")
-            .size(14)
-            .color([0.7, 0.7, 0.7]);
-
-        // Styled Text Input
-        let input =
-            GlassTextInput::new("Enter text...", &self.input_value).on_input(Message::InputChanged);
-
-        // Styled Button
-        let button = GlassButton::new("Submit").on_press(Message::ButtonPressed);
-
-        // Glass Image Placeholder
-        let image = GlassImageViewer::new();
-
-        let content = column![
-            Space::with_height(50),
-            title,
-            subtitle,
-            Space::with_height(10),
-            description,
-            Space::with_height(40),
-            // Wrapping input in a specific width for better "Glass" look
-            container(input).width(Length::Fixed(400.0)),
-            Space::with_height(20),
-            button,
-            Space::with_height(40),
-            image,
-        ]
-        .padding(40)
-        .align_items(Alignment::Start);
-
-        container(content)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x()
-            .style(iced::theme::Container::default()) // Keeps the Dark Theme background
-            .into()
+        match self.current_page {
+            Page::Dashboard => {
+                // Return a different view here
+                iced::widget::text("Welcome to Dashboard").into()
+            }
+            Page::Registry => {
+                // Call the Registry Page's view
+                self.registry_state.view()
+            }
+        }
     }
 
     fn theme(&self) -> Theme {
         Theme::Dark
     }
+}
+
+pub fn main() -> iced::Result {
+    GlassmorphismApp::run(Settings::default())
 }
