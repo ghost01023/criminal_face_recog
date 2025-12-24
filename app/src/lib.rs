@@ -10,7 +10,11 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     Dashboard,
+    MainMenu,
     Registry,
+    ImageFind,
+    VideoFind,
+    SignIn,
 }
 
 #[derive(Debug, Clone)]

@@ -13,6 +13,7 @@ sea-orm = { version = "1.0", features = [ "sqlx-mysql", "runtime-tokio-rustls", 
 sea-query = "0.32.7"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
+futures = "0.3"
 
 [dependencies.zune-jpeg]
 version = "0.5.7"
