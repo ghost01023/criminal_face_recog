@@ -14,6 +14,7 @@ sea-query = "0.32.7"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 futures = "0.3"
+mpsc = "0.2.6"
 
 [dependencies.zune-jpeg]
 version = "0.5.7"

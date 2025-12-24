@@ -105,6 +105,7 @@ dependencies = [
  "iced",
  "image",
  "message",
+ "mpsc",
  "rfd",
  "sea-orm",
  "sea-query",
@@ -1006,6 +1007,29 @@ dependencies = [
  "darling_core",
  "quote",
  "syn 2.0.111",
+]
+
+[[package]]
+name = "dashmap"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core 0.9.12",
+]
+
+[[package]]
+name = "dequemap"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9a8b815f6a66eb3d70d9af06b9b6a664d947d5ea4cb3374c63941b9bfc7ca24"
+dependencies = [
+ "hashbrown 0.15.5",
 ]
 
 [[package]]
@@ -2486,6 +2510,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "mpsc"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09063ffbeb8d9545183d05bd5097ec8f0c7a0d6f81638bbbddfadee10ec0229f"
+dependencies = [
+ "ahash 0.8.12",
+ "crossbeam-queue",
+ "dashmap",
+ "futures",
+ "log",
+ "parking_lot 0.12.5",
+ "queue-ext",
+ "rand 0.8.5",
+ "std-ext",
+]
+
+[[package]]
 name = "mutate_once"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3103,6 +3144,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pin-project"
+version = "1.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "677f1add503faace112b9f1373e43e9e054bfdd22ff1a63c1bc485eaec6a6a8a"
+dependencies = [
+ "pin-project-internal",
+]
+
+[[package]]
+name = "pin-project-internal"
+version = "1.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e918e4ff8c4549eb882f14b3a4bc8c8bc93de829416eacf579f1207a8fbf861"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+]
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3301,6 +3362,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f6d64c71eb498fe9eae14ce4ec935c555749aef511cca85b5568910d6e48001"
 dependencies = [
  "bytemuck",
+]
+
+[[package]]
+name = "queue-ext"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "120b0b73691c04d1b3895c9c1131b1e553f0f93f09ffe2ba594992db585624c8"
+dependencies = [
+ "futures",
+ "log",
+ "pin-project",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -4387,6 +4460,15 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "std-ext"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a1842963116222c15799928d092cbd4db7f4e471e20c41b966ee35b1c72b71a"
+dependencies = [
+ "dequemap",
+]
 
 [[package]]
 name = "strict-num"

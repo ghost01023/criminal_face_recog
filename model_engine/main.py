@@ -6,7 +6,9 @@ import contextlib
 import os
 from sklearn.cluster import KMeans
 import sys
+import time
 
+time.sleep(0.1)
 logger = logging.getLogger(__name__)
 
 
@@ -25,14 +27,13 @@ class FaceRecognizer:
         self.max_embeddings = max_embeddings_per_person
         self.max_centroids = max_centroids
 
-        print("Initializing AI models (silently)...")
+        print("Initializing AI models (silently)...", flush=True)
         with open(os.devnull, "w") as fnull:
             with contextlib.redirect_stdout(fnull), contextlib.redirect_stderr(fnull):
                 self.app = insightface.app.FaceAnalysis(
                     name="buffalo_l", providers=["CUDAExecutionProvider"]
                 )
                 self.app.prepare(ctx_id=0, det_size=(640, 640))
-        print("AI System Ready.")
 
         # name -> List[np.ndarray]
         self.embeddings = {}
@@ -250,47 +251,57 @@ fr = FaceRecognizer()
 # print("Attempting to identify from video")
 # name, score = fr.identify_from_video("tyler.mp4")
 # KEY IS CRIMINAL_ID
-"""
-while True:
-    recv_msg = "identify image {location}".split(" ")
-    cmd = recv_msg[0]
-    if cmd == "identify":
-        media_type = recv_msg[1]
-        if media_type == "image":
-            print(fr.identify(recv_msg[2]))
-        elif media_type = "video":
-            print(fr.identify_from_video(recv_msg[2]))
-
-    elif cmd == "add":
-        print(fr.identify(recv_msg[1]))
-
-    identify <image|video> {media-location}
-    add <details> {image_location[]>
-    save
-    exit"""
 
 
-"""
-    identity <criminal_id|none>
-    """
-
-
+# Replace your bottom 'for line in sys.stdin' loop with this:
 for line in sys.stdin:
-    recv_msg = line.strip().split(" ")
-    cmd = recv_msg[0]
-    if cmd == "identify":
-        media_type = recv_msg[1]
-        if media_type == "image":
-            criminal_id, confidence = fr.identify(recv_msg[2])
-            print("identity", criminal_id, str(confidence), flush=True)
-        elif media_type == "video":
-            criminal_id, confidence = fr.identify_from_video(recv_msg[2])
-            print("identity", criminal_id, str(confidence), flush=True)
+    line = line.strip()
+    if not line:
+        continue
 
-    elif cmd == "add":
-        photo_locations = recv_msg[2].split("&")
-        for loc in photo_locations:
-            fr.add_person(recv_msg[1], loc)
-        print("added", recv_msg[1], flush=True)
-    else:
-        print("Received message from new module", flush=True)
+    recv_msg = line.split(" ")
+    cmd = recv_msg[0]
+
+    try:
+        if cmd == "identify":
+            if len(recv_msg) < 3:
+                print("error missing_path", flush=True)
+                continue
+
+            media_type = recv_msg[1]
+            media_path = recv_msg[2]
+
+            if media_type == "image":
+                criminal_id, confidence = fr.identify(media_path)
+            elif media_type == "video":
+                criminal_id, confidence = fr.identify_from_video(media_path)
+            else:
+                print("error unknown_media_type", flush=True)
+                continue
+
+            out_id = criminal_id if criminal_id else "UNKNOWN"
+            print(f"identity {out_id} {confidence:.4f}", flush=True)
+
+        elif cmd == "add":
+            if len(recv_msg) < 3:
+                print("error missing_add_data", flush=True)
+                continue
+
+            criminal_id = recv_msg[1]
+            photo_locations = recv_msg[2].split("&")
+
+            for loc in photo_locations:
+                fr.add_person(criminal_id, loc)
+
+            fr.save_db()  # Important to persist after adding
+            print(f"added {criminal_id}", flush=True)
+
+        elif cmd == "exit":
+            break
+
+        else:
+            print(f"info ignored_command {cmd}", flush=True)
+
+    except Exception as e:
+        # Catch internal errors so the loop doesn't die and cause a Broken Pipe in Rust
+        print(f"error {str(e)}", flush=True)

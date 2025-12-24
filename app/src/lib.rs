@@ -2,6 +2,7 @@ pub mod components;
 pub mod database;
 pub mod entities;
 pub mod pages;
+pub mod python_process;
 
 use crate::database::CriminalDB;
 use std::path::PathBuf;
@@ -38,4 +39,7 @@ pub enum Message {
     SubmitForm,
     DbConnected(Result<Arc<CriminalDB>, String>),
     SaveResult(Result<u32, String>),
+
+    // --- PythonProcess model_engine Events ---
+    PythonOutput(String),
 }
