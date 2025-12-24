@@ -67,13 +67,97 @@ class FaceRecognizer:
 
         return best_match, best_score if best_match else (None, 0)
 
+    def identify_from_video(
+        self,
+        video_path,
+        threshold=0.4,
+        frame_skip=5,
+        max_frames=300,
+    ):
+        """
+        Identify a person from a video file.
+
+        Args:
+            video_path (str): Path to video file
+            threshold (float): Cosine similarity threshold
+            frame_skip (int): Process every Nth frame
+            max_frames (int): Safety limit
+
+        Returns:
+            (name, confidence) or (None, 0)
+        """
+
+        if not os.path.exists(video_path):
+            logger.error("Video not found: %s", video_path)
+            return None, 0
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            logger.error("Failed to open video: %s", video_path)
+            return None, 0
+
+        matches = {}
+        frame_count = 0
+        processed = 0
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            frame_count += 1
+            if frame_count % frame_skip != 0:
+                continue
+
+            processed += 1
+            if processed > max_frames:
+                break
+
+            faces = self.app.get(frame)
+            if not faces:
+                continue
+
+            for face in faces:
+                emb = face.embedding
+
+                for name, known_emb in self.known_faces.items():
+                    similarity = np.dot(emb, known_emb) / (
+                        np.linalg.norm(emb) * np.linalg.norm(known_emb)
+                    )
+
+                    if similarity >= threshold:
+                        if name not in matches:
+                            matches[name] = []
+                        matches[name].append(similarity)
+
+            # 🔥 Early exit if strong match found
+            for name, sims in matches.items():
+                if len(sims) >= 5 and np.mean(sims) > 0.6:
+                    cap.release()
+                    return name, float(np.mean(sims))
+
+        cap.release()
+
+        if not matches:
+            return None, 0
+
+        # Pick best overall match
+        best_name = max(matches, key=lambda k: np.mean(matches[k]))
+        best_score = float(np.mean(matches[best_name]))
+
+        return best_name, best_score
+
 
 logging.basicConfig(level=logging.INFO)
 
 fr = FaceRecognizer()
 # print("Adding brad...".upper())
-# fr.add_person("salman", "salman.jpg")
+fr.add_person("morgan", "morgan_1.jpg")
 # fr.add_person("brad", "brad_pitt.webp")
 fr.save_db()
 print("Attempting to identify")
-print(fr.identify("salman.jpg"))
+print(fr.identify("morgan_2.jpg"))
+
+
+print("Attempting to identify from video")
+# name, score = fr.identify_from_video("tyler.mp4")

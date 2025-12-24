@@ -5,3 +5,6 @@ model_engine/*.jpg
 model_engine/*.webp
 model_engine/*.png
 model_engine/*.jpeg
+model_engine/*.mp4
+model_engine/*.log
+model_engine/*.npz

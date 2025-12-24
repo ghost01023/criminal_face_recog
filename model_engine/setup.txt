@@ -1,4 +1,4 @@
-install and add micromamba to systm PATH
+install and add micromamba to system PATH
 
 run: 
 
@@ -18,3 +18,9 @@ micromamba activate ort
 
 
 python main.py
+
+
+
+install rust and add binary location to system PATH
+cd app
+cargo install
