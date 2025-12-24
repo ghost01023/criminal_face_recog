@@ -1,29 +1,31 @@
 use crate::Message;
+use iced::futures;
 use iced::subscription;
 use std::{
     io::{BufRead, BufReader, Write},
     process::{ChildStdin, Command, Stdio},
+    sync::{Arc, Mutex as StdMutex},
     thread,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex as TokioMutex};
 
 pub struct PythonProcess {
-    stdin: ChildStdin,
-    // We use Option so we can .take() the receiver out into the subscription
-    pub rx: Option<mpsc::Receiver<String>>,
+    stdin: Arc<StdMutex<ChildStdin>>,
+    rx: Arc<TokioMutex<mpsc::Receiver<String>>>,
     _child: std::process::Child,
 }
 
-/// The Subscription worker
-pub fn python_sub(rx: mpsc::Receiver<String>) -> iced::Subscription<Message> {
-    // "python_engine" is a unique ID for this subscription instance
-    subscription::unfold("python_engine", rx, move |mut rx| async move {
-        // This awaits until Python prints a line. No Ticks or loops required.
-        match rx.recv().await {
-            Some(line) => (Message::PythonOutput(line), rx),
+pub fn python_sub(rx: Arc<TokioMutex<mpsc::Receiver<String>>>) -> iced::Subscription<Message> {
+    subscription::unfold("python_engine", rx, move |rx| async move {
+        let mut rx_guard = rx.lock().await;
+        match rx_guard.recv().await {
+            Some(line) => {
+                drop(rx_guard); // Release lock before returning
+                (Message::PythonOutput(line), rx)
+            }
             None => {
-                // If the channel closes, we keep the subscription alive but idle
-                iced::futures::future::pending().await
+                drop(rx_guard);
+                futures::future::pending().await
             }
         }
     })
@@ -33,7 +35,7 @@ impl PythonProcess {
     pub fn spawn(script_path: &str, working_dir: &str) -> std::io::Result<Self> {
         let mut child = Command::new("prime-run")
             .arg("python")
-            .arg("-u") // Force unbuffered output
+            .arg("-u")
             .arg(script_path)
             .current_dir(working_dir)
             .stdin(Stdio::piped())
@@ -45,24 +47,30 @@ impl PythonProcess {
         let stdout = child.stdout.take().expect("Failed to open stdout");
         let stderr = child.stderr.take().expect("Failed to open stderr");
 
-        // Create an async channel with a buffer
         let (tx, rx) = mpsc::channel(100);
 
-        // STDOUT Thread: Moves data from the blocking pipe to the async channel
+        // STDOUT Thread
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines() {
                 match line {
                     Ok(l) => {
-                        // If this fails, the receiver was dropped
+                        eprintln!("[PY-OUT-RAW] {}", l);
                         if tx.blocking_send(l).is_err() {
+                            eprintln!("[PY-OUT] Channel closed");
                             break;
                         }
                     }
-                    Err(_) => break,
+                    Err(e) => {
+                        eprintln!("[PY-OUT-ERR] {}", e);
+                        break;
+                    }
                 }
             }
-        }); // STDERR Thread
+            eprintln!("[PY-OUT] Thread exiting");
+        });
+
+        // STDERR Thread
         thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
@@ -73,14 +81,19 @@ impl PythonProcess {
         });
 
         Ok(Self {
-            stdin,
-            rx: Some(rx),
+            stdin: Arc::new(StdMutex::new(stdin)),
+            rx: Arc::new(TokioMutex::new(rx)),
             _child: child,
         })
     }
 
-    pub fn send(&mut self, message: &str) -> std::io::Result<()> {
-        writeln!(self.stdin, "{}", message)?;
-        self.stdin.flush()
+    pub fn send(&self, message: &str) -> std::io::Result<()> {
+        let mut stdin = self.stdin.lock().unwrap();
+        writeln!(&mut *stdin, "{}", message)?;
+        stdin.flush()
+    }
+
+    pub fn get_rx(&self) -> Arc<TokioMutex<mpsc::Receiver<String>>> {
+        Arc::clone(&self.rx)
     }
 }

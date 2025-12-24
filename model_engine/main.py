@@ -236,9 +236,6 @@ class FaceRecognizer:
         return best_name, best_score
 
 
-logging.basicConfig(level=logging.INFO)
-
-fr = FaceRecognizer()
 # print("Adding brad...".upper())
 # fr.add_person("morgan", "morgan_1.jpg")
 # fr.add_person("brad", "brad_pitt.webp")
@@ -254,6 +251,14 @@ fr = FaceRecognizer()
 
 
 # Replace your bottom 'for line in sys.stdin' loop with this:
+
+logging.basicConfig(level=logging.INFO)
+
+fr = FaceRecognizer()
+
+logger.info("Face recognizer initialized, waiting for commands")
+
+# Just start listening for commands - don't print anything first
 for line in sys.stdin:
     line = line.strip()
     if not line:
@@ -263,7 +268,11 @@ for line in sys.stdin:
     cmd = recv_msg[0]
 
     try:
-        if cmd == "identify":
+        if cmd == "start":
+            # Acknowledge the start command
+            print("ready", flush=True)
+
+        elif cmd == "identify":
             if len(recv_msg) < 3:
                 print("error missing_path", flush=True)
                 continue
@@ -293,7 +302,7 @@ for line in sys.stdin:
             for loc in photo_locations:
                 fr.add_person(criminal_id, loc)
 
-            fr.save_db()  # Important to persist after adding
+            fr.save_db()
             print(f"added {criminal_id}", flush=True)
 
         elif cmd == "exit":
@@ -303,5 +312,4 @@ for line in sys.stdin:
             print(f"info ignored_command {cmd}", flush=True)
 
     except Exception as e:
-        # Catch internal errors so the loop doesn't die and cause a Broken Pipe in Rust
         print(f"error {str(e)}", flush=True)

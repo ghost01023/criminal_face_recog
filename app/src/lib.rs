@@ -41,5 +41,6 @@ pub enum Message {
     SaveResult(Result<u32, String>),
 
     // --- PythonProcess model_engine Events ---
+    InitializePython,
     PythonOutput(String),
 }
