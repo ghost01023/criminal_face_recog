@@ -1,9 +1,9 @@
+use crate::components::button::GlassButton;
 use iced::{
-    widget::{column, container, image, text, Container, Renderer, Space, Theme},
+    widget::{column, container, image, row, text, Container, Space},
     Background, Border, Color, Element, Length, Shadow,
 };
 
-use crate::components::button::GlassButton;
 pub struct GlassImageViewer {
     paths: Vec<String>,
     current_index: usize,
@@ -29,32 +29,35 @@ impl container::StyleSheet for CustomContainerStyle {
 }
 
 impl GlassImageViewer {
+    /// Creates a new GlassImageViewer with the given image paths and current index
     pub fn new(paths: Vec<String>, current_index: usize) -> Self {
+        let index = if paths.is_empty() {
+            0
+        } else {
+            current_index.min(paths.len() - 1)
+        };
         Self {
             paths,
-            current_index,
+            current_index: index,
         }
     }
 
-    /// We now take the messages as arguments so the component remains reusable
-    pub fn view<Message>(
-        self,
-        on_next: Message,
-        on_prev: Message,
-    ) -> Container<'static, Message, Theme, Renderer>
+    /// Render the image viewer with next/prev buttons
+    pub fn view<Message>(self, on_next: Message, on_prev: Message) -> Container<'static, Message>
     where
         Message: Clone + 'static,
     {
         let next_button = GlassButton::new("Next").on_press(on_next);
         let prev_button = GlassButton::new("Prev").on_press(on_prev);
 
-        let content: Element<'static, Message, Theme, Renderer> = if self.paths.is_empty() {
+        let content: Element<'static, Message> = if self.paths.is_empty() {
             text("No Images Loaded")
                 .size(20)
                 .style(Color::from_rgba(0.6, 0.6, 0.6, 0.8))
                 .into()
         } else {
-            let path = self.paths.get(self.current_index).unwrap_or(&self.paths[0]);
+            let path = self.paths[self.current_index].clone();
+            let counter = format!("{} / {}", self.current_index + 1, self.paths.len());
 
             column![
                 Space::with_height(10),
@@ -63,8 +66,11 @@ impl GlassImageViewer {
                     .height(Length::Fill)
                     .content_fit(iced::ContentFit::Contain),
                 Space::with_height(10),
-                // Putting buttons in a row or column under the image
-                iced::widget::row![prev_button, next_button].spacing(10)
+                text(counter)
+                    .size(14)
+                    .style(Color::from_rgba(0.7, 0.7, 0.7, 0.9)),
+                Space::with_height(10),
+                row![prev_button, Space::with_width(10), next_button].spacing(10)
             ]
             .align_items(iced::Alignment::Center)
             .spacing(10)
@@ -72,8 +78,8 @@ impl GlassImageViewer {
         };
 
         container(content)
-            .width(Length::Fixed(600.0))
-            .height(Length::Fixed(450.0)) // Increased height for buttons
+            .width(Length::Fill)
+            .height(Length::Fill)
             .center_x()
             .center_y()
             .style(iced::theme::Container::Custom(Box::new(

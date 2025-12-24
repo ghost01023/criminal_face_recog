@@ -53,6 +53,24 @@ impl Application for GlassmorphismApp {
                 self.registry_state.name_error = false;
             }
 
+            Message::NextImage => {
+                if !self.registry_state.selected_images.is_empty() {
+                    // Using modulo (%) allows the gallery to loop back to the start
+                    self.registry_state.current_img_idx = (self.registry_state.current_img_idx + 1)
+                        % self.registry_state.selected_images.len();
+                }
+            }
+            Message::PrevImage => {
+                if !self.registry_state.selected_images.is_empty() {
+                    // Check for zero to wrap around to the end of the list
+                    if self.registry_state.current_img_idx == 0 {
+                        self.registry_state.current_img_idx =
+                            self.registry_state.selected_images.len() - 1;
+                    } else {
+                        self.registry_state.current_img_idx -= 1;
+                    }
+                }
+            }
             Message::DbConnected(Ok(db_arc)) => {
                 self.db = Some(db_arc);
                 println!("Connected to Database.");
