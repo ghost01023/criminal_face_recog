@@ -1,0 +1,165 @@
+use iced::{
+    widget::{button, text, Button},
+    Color, Element, Length,
+};
+
+pub struct GlassButton<'a, Message> {
+    label: &'a str,
+    on_press: Option<Message>,
+}
+
+impl<'a, Message: Clone> GlassButton<'a, Message> {
+    pub fn new(label: &'a str) -> Self {
+        Self {
+            label,
+            on_press: None,
+        }
+    }
+
+    pub fn on_press(mut self, msg: Message) -> Self {
+        self.on_press = Some(msg);
+        self
+    }
+
+    pub fn view(self) -> Button<'a, Message> {
+        let btn = button(
+            text(self.label)
+                .size(16)
+                .style(Color::from_rgb(0.9, 0.9, 0.9)),
+        )
+        .padding([12, 24])
+        .style(|theme, status| {
+            let palette = theme.extended_palette();
+            let base = palette.background.weak;
+
+            button::Appearance {
+                background: Some(iced::Background::Color(Color::from_rgba(
+                    0.2, 0.9, 0.5, 0.15,
+                ))),
+                border: iced::Border {
+                    color: Color::from_rgba(0.4, 0.9, 0.5, 0.3),
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                text_color: Color::from_rgb(0.4, 0.9, 0.5),
+                ..button::Appearance::default()
+            }
+        });
+
+        if let Some(msg) = self.on_press {
+            btn.on_press(msg)
+        } else {
+            btn
+        }
+    }
+}
+
+impl<'a, Message: Clone + 'a> From<GlassButton<'a, Message>> for Element<'a, Message> {
+    fn from(button: GlassButton<'a, Message>) -> Self {
+        button.view().into()
+    }
+}
+use iced::{
+    widget::{container, text, Container},
+    Color, Element, Length,
+};
+
+pub struct GlassImageViewer;
+
+impl GlassImageViewer {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn view<Message: 'static>(self) -> Container<'static, Message> {
+        container(
+            text("🖼️ Image Placeholder")
+                .size(20)
+                .style(Color::from_rgba(0.6, 0.6, 0.6, 0.8)),
+        )
+        .width(Length::Fixed(300.0))
+        .height(Length::Fixed(200.0))
+        .center_x()
+        .center_y()
+        .style(|_theme| container::Appearance {
+            background: Some(iced::Background::Color(Color::from_rgba(
+                0.15, 0.15, 0.15, 0.4,
+            ))),
+            border: iced::Border {
+                color: Color::from_rgba(0.4, 0.9, 0.5, 0.2),
+                width: 1.0,
+                radius: 12.0.into(),
+            },
+            ..container::Appearance::default()
+        })
+    }
+}
+
+impl<Message: 'static> From<GlassImageViewer> for Element<'static, Message> {
+    fn from(viewer: GlassImageViewer) -> Self {
+        viewer.view().into()
+    }
+}
+pub mod button;
+pub mod image_viewer;
+pub mod input_label;
+pub mod text_input;
+use iced::{
+    widget::{text_input, TextInput},
+    Color, Element,
+};
+
+pub struct GlassTextInput<'a, Message> {
+    placeholder: &'a str,
+    value: &'a str,
+    on_input: Option<Box<dyn Fn(String) -> Message>>,
+}
+
+impl<'a, Message: Clone> GlassTextInput<'a, Message> {
+    pub fn new(placeholder: &'a str, value: &'a str) -> Self {
+        Self {
+            placeholder,
+            value,
+            on_input: None,
+        }
+    }
+
+    pub fn on_input<F>(mut self, f: F) -> Self
+    where
+        F: 'static + Fn(String) -> Message,
+    {
+        self.on_input = Some(Box::new(f));
+        self
+    }
+
+    pub fn view(self) -> TextInput<'a, Message> {
+        let input = text_input(self.placeholder, self.value)
+            .padding(12)
+            .size(16)
+            .style(|theme, status| {
+                let palette = theme.extended_palette();
+
+                text_input::Appearance {
+                    background: iced::Background::Color(Color::from_rgba(0.1, 0.1, 0.1, 0.3)),
+                    border: iced::Border {
+                        color: Color::from_rgba(0.4, 0.9, 0.5, 0.25),
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    icon_color: Color::from_rgb(0.6, 0.6, 0.6),
+                }
+            });
+
+        if let Some(on_input) = self.on_input {
+            input.on_input(on_input)
+        } else {
+            input
+        }
+    }
+}
+
+impl<'a, Message: Clone + 'a> From<GlassTextInput<'a, Message>> for Element<'a, Message> {
+    fn from(input: GlassTextInput<'a, Message>) -> Self {
+        input.view().into()
+    }
+}
