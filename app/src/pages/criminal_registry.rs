@@ -1,12 +1,16 @@
-use crate::components::{
-    button::GlassButton, image_viewer::GlassImageViewer, input_label::GlassInputLabel,
-    text_input::GlassTextInput,
-};
+use crate::components::GlassButton;
+use crate::components::GlassImageViewer;
+use crate::components::GlassInputLabel;
+use crate::components::GlassTextInput;
+
+use crate::database::CriminalDB;
 use crate::Message;
 use iced::{
     widget::{column, container, row, scrollable, Space},
-    Alignment, Element, Length, Renderer, Theme,
-}; // Import the shared Message enum from main.rs
+    Alignment, Command, Element, Length, Renderer, Theme,
+};
+use std::sync::Arc;
+
 #[derive(Default)]
 pub struct RegistryPage {
     pub name: String,
@@ -19,8 +23,88 @@ pub struct RegistryPage {
 }
 
 impl RegistryPage {
+    /// Decoupled logic for handling Registry-specific messages
+    pub fn update(&mut self, message: Message, db: Option<Arc<CriminalDB>>) -> Command<Message> {
+        match message {
+            Message::NameChanged(s) => {
+                self.name = s;
+                self.name_error = false;
+            }
+            Message::FathersNameChanged(s) => self.fathers_name = s,
+            Message::CrimesCountChanged(s) => self.no_of_crimes = s,
+            Message::LocationChanged(s) => self.arrested_location = s,
+
+            Message::NextImage => {
+                if !self.selected_images.is_empty() {
+                    self.current_img_idx = (self.current_img_idx + 1) % self.selected_images.len();
+                }
+            }
+            Message::PrevImage => {
+                if !self.selected_images.is_empty() {
+                    self.current_img_idx = if self.current_img_idx == 0 {
+                        self.selected_images.len() - 1
+                    } else {
+                        self.current_img_idx - 1
+                    };
+                }
+            }
+
+            Message::SubmitForm => {
+                if self.name.trim().is_empty() {
+                    self.name_error = true;
+                    return Command::none();
+                }
+
+                let Some(db) = db else {
+                    eprintln!("Database not connected yet.");
+                    return Command::none();
+                };
+
+                // Clone data for async block
+                let name = self.name.clone();
+                let f_name = (!self.fathers_name.is_empty()).then(|| self.fathers_name.clone());
+                let loc =
+                    (!self.arrested_location.is_empty()).then(|| self.arrested_location.clone());
+                let crimes = self.no_of_crimes.parse::<u32>().unwrap_or(1);
+                let photo_paths = self.selected_images.clone();
+
+                return Command::perform(
+                    async move {
+                        let criminal_id = db
+                            .add_criminal(name, f_name, loc, crimes)
+                            .await
+                            .map_err(|e| e.to_string())?;
+
+                        for path in photo_paths {
+                            if let Ok(bytes) = std::fs::read(path) {
+                                db.add_criminal_photo(criminal_id, bytes)
+                                    .await
+                                    .map_err(|e| e.to_string())?;
+                            }
+                        }
+                        Ok(criminal_id)
+                    },
+                    Message::SaveResult,
+                );
+            }
+            Message::SaveResult(Ok(_)) => {
+                *self = RegistryPage::default(); // Reset form on success
+            }
+
+            Message::FilesSelected(paths) => {
+                self.selected_images = paths
+                    .into_iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect();
+                self.current_img_idx = 0;
+            }
+            _ => {}
+        }
+        Command::none()
+    }
+
     pub fn view(&self) -> Element<Message> {
-        // --- LEFT COLUMN (40% Width) ---
+        // ... (Keep your existing view code here)
         let top_left_content: Element<Message, Theme, Renderer> = if self.selected_images.is_empty()
         {
             column![
@@ -29,13 +113,13 @@ impl RegistryPage {
             ]
             .align_items(Alignment::Center)
             .spacing(10)
-            .into() // Converts Column to Element
+            .into()
         } else {
-            self.image_viewer_logic().into() // Converts Viewer Container to Element
+            self.image_viewer_logic().into()
         };
 
         let left_col = column![
-            container(top_left_content) // Now it knows exactly what this is
+            container(top_left_content)
                 .width(Length::Fill)
                 .height(Length::FillPortion(60))
                 .center_x()
@@ -43,7 +127,7 @@ impl RegistryPage {
             Space::with_height(Length::FillPortion(40)),
         ]
         .width(Length::FillPortion(40));
-        // --- RIGHT COLUMN (60% Width) ---
+
         let right_col = column![
             container(scrollable(
                 column![

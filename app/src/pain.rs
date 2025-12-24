@@ -41,7 +41,7 @@ impl PythonProcess {
     }
 }
 
-fn main() -> std::io::Result<()> {
+fn pain() -> std::io::Result<()> {
     let mut child = Command::new("prime-run")
         .arg("python")
         .arg("/home/NEW_VOLUME-d/developer/criminal_face_recog/model_engine/main.py")

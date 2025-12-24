@@ -1,102 +1,97 @@
-// main.rs
-use std::{
-    io::{BufRead, BufReader, Write},
-    process::{Child, ChildStdin, Command, Stdio},
-    sync::mpsc::{self, Receiver},
-    thread,
-};
+use app::database::CriminalDB;
+use app::pages::*;
+use app::Message;
+use app::Page;
+use iced::{Application, Command, Element, Settings, Theme};
+use rfd;
 
-pub struct PythonProcess {
-    stdin: ChildStdin,
-    rx: Receiver<String>,
+pub struct GlassmorphismApp {
+    current_page: Page,
+    registry_state: RegistryPage, // The form data lives here
+    image_find: ImageFindPage,
+    db: Option<std::sync::Arc<CriminalDB>>,
 }
 
-impl PythonProcess {
-    pub fn new(mut child: Child) -> Self {
-        let stdin = child.stdin.take().unwrap();
-        let stdout = child.stdout.take().unwrap();
+impl Application for GlassmorphismApp {
+    type Executor = iced::executor::Default;
+    type Message = Message;
+    type Theme = Theme;
+    type Flags = ();
+    fn new(_flags: ()) -> (Self, Command<Message>) {
+        let db_url = "mysql://root:@localhost:3306/criminal_recognizer".to_string();
 
-        let (tx, rx) = mpsc::channel();
-
-        // ---- stdout reader thread ----
-        thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    let _ = tx.send(line);
-                }
+        (
+            Self {
+                current_page: Page::MainMenu,
+                registry_state: RegistryPage::default(),
+                image_find: ImageFindPage::default(),
+                db: None,
+            },
+            Command::perform(
+                async move {
+                    // Map the internal database result to a clean Result<Arc, String>
+                    CriminalDB::new(&db_url)
+                        .await
+                        .map(std::sync::Arc::new)
+                        .map_err(|e| e.to_string())
+                },
+                // FIX: Use a closure instead of passing the Enum variant directly
+                |result| Message::DbConnected(result),
+            ),
+        )
+    }
+    fn title(&self) -> String {
+        String::from("Criminal Recognizer")
+    }
+    fn update(&mut self, message: Message) -> Command<Message> {
+        match message {
+            Message::GoTo(page) => {
+                self.current_page = page;
+                Command::none()
             }
-        });
-
-        Self { stdin, rx }
+            Message::DbConnected(Ok(db_arc)) => {
+                self.db = Some(db_arc);
+                Command::none()
+            }
+            Message::OpenFilePicker => Command::perform(
+                async {
+                    rfd::FileDialog::new()
+                        .add_filter("Images", &["jpg", "png", "jpeg"])
+                        .pick_files()
+                        .unwrap_or_default()
+                },
+                Message::FilesSelected,
+            ),
+            Message::FilesSelected(_) => match self.current_page {
+                Page::ImageFind => ImageFindPage::update(&mut self.image_find, message),
+                _ => self.registry_state.update(message, self.db.clone()),
+            },
+            // Delegate all other form/registry messages to the registry_state
+            _ => self.registry_state.update(message, self.db.clone()),
+        }
     }
 
-    pub fn send_message(&mut self, msg: &str) {
-        let _ = writeln!(self.stdin, "{msg}");
-        let _ = self.stdin.flush();
+    fn view(&self) -> Element<Message> {
+        match self.current_page {
+            Page::Dashboard => {
+                // Return a different view here
+                iced::widget::text("Welcome to Dashboard").into()
+            }
+            Page::Registry => {
+                // Call the Registry Page's view
+                self.registry_state.view()
+            }
+            Page::MainMenu => MainMenu::view(),
+            Page::ImageFind => return self.image_find.view(),
+            _ => iced::widget::text("New page").into(),
+        }
     }
 
-    pub fn receive_message(&self) -> Option<String> {
-        self.rx.try_recv().ok()
+    fn theme(&self) -> Theme {
+        Theme::Dark
     }
 }
 
-fn main() -> std::io::Result<()> {
-    let mut child = Command::new("prime-run")
-        .arg("python")
-        .arg("/home/NEW_VOLUME-d/developer/criminal_face_recog/model_engine/main.py")
-        .current_dir("/home/NEW_VOLUME-d/developer/criminal_face_recog/model_engine")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped()) // recommended
-        .spawn()?;
-
-    // ─────────────────────────────
-    // STDOUT reader thread
-    // ─────────────────────────────
-    let stdout = child.stdout.take().unwrap();
-    thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            match line {
-                Ok(l) => println!("[PY] {}", l),
-                Err(e) => {
-                    eprintln!("Python stdout read error: {}", e);
-                    break;
-                }
-            }
-        }
-    });
-
-    // ─────────────────────────────
-    // STDERR reader thread (VERY IMPORTANT)
-    // ─────────────────────────────
-    let stderr = child.stderr.take().unwrap();
-    thread::spawn(move || {
-        let reader = BufReader::new(stderr);
-        for line in reader.lines() {
-            match line {
-                Ok(l) => eprintln!("[PY-ERR] {}", l),
-                Err(_) => break,
-            }
-        }
-    });
-
-    // ─────────────────────────────
-    // Write to Python stdin
-    // ─────────────────────────────
-    let mut stdin = child.stdin.take().unwrap();
-
-    loop {
-        let mut msg = String::new();
-        std::io::stdin().read_line(&mut msg)?;
-
-        let msg = msg.trim();
-        if msg.is_empty() {
-            continue;
-        }
-
-        writeln!(stdin, "{}", msg)?;
-        stdin.flush()?;
-    }
+pub fn main() -> iced::Result {
+    GlassmorphismApp::run(Settings::default())
 }

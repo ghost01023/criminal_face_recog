@@ -1,5 +1,6 @@
-use crate::components::button::GlassButton;
-use crate::components::input_label::GlassInputLabel;
+use crate::components::GlassButton;
+use crate::components::GlassInputLabel;
+
 use crate::{Message, Page};
 use iced::{
     widget::{column, container, text, Space},
