@@ -6,8 +6,8 @@ use crate::components::GlassTextInput;
 use crate::database::CriminalDB;
 use crate::Message;
 use iced::{
-    widget::{column, container, row, scrollable, Space},
-    Alignment, Command, Element, Length, Renderer, Theme,
+    widget::{column, container, row, scrollable},
+    Alignment, Element, Length, Task,
 };
 use std::sync::Arc;
 
@@ -19,8 +19,8 @@ pub struct RegistryPage {
     pub name_error: bool,
     pub selected_images: Vec<String>,
     pub current_img_idx: usize,
-    pub is_saving: bool,    // Added for UI feedback
-    pub save_success: bool, // Added for UI feedback
+    pub is_saving: bool,
+    pub save_success: bool,
 }
 
 impl Default for RegistryPage {
@@ -38,9 +38,10 @@ impl Default for RegistryPage {
         }
     }
 }
+
 impl RegistryPage {
-    /// Decoupled logic for handling Registry-specific messages
-    pub fn update(&mut self, message: Message, db: Option<Arc<CriminalDB>>) -> Command<Message> {
+    // UPDATED: Now returns Task<Message>
+    pub fn update(&mut self, message: Message, db: Option<Arc<CriminalDB>>) -> Task<Message> {
         match message {
             Message::NameChanged(value) => {
                 self.name = value;
@@ -62,11 +63,11 @@ impl RegistryPage {
             Message::SubmitForm => {
                 if self.name.trim().is_empty() {
                     self.name_error = true;
-                    return Command::none();
+                    return Task::none();
                 }
 
                 let Some(db) = db else {
-                    return Command::none();
+                    return Task::none();
                 };
 
                 self.is_saving = true;
@@ -78,22 +79,22 @@ impl RegistryPage {
                 let crimes = self.no_of_crimes.parse::<u32>().unwrap_or(1);
                 let photo_paths = self.selected_images.clone();
 
-                return Command::perform(
+                // UPDATED: Command::perform -> Task::perform
+                return Task::perform(
                     async move {
-                        // 1. Save to Rust Database first to get the ID
+                        // 1. Save to Rust Database
                         let criminal_id = db
                             .add_criminal(name, f_name, loc, crimes)
                             .await
                             .map_err(|e| e.to_string())?;
 
-                        // 2. Save photos to Rust Database (for retrieval later)
+                        // 2. Save photos (preserving existing logic)
                         for path in &photo_paths {
                             if let Ok(bytes) = std::fs::read(path) {
                                 let _ = db.add_criminal_photo(criminal_id, bytes).await;
                             }
                         }
 
-                        // 3. Return the ID and paths so we can tell Python to "add" them
                         Ok((criminal_id, photo_paths))
                     },
                     |result| match result {
@@ -104,18 +105,16 @@ impl RegistryPage {
             }
 
             Message::DatabaseSaved(id, paths) => {
-                // Now we tell the Main loop to send to Python
                 let paths_str = paths.join("&");
                 let python_cmd = format!("add {} {}", id, paths_str);
 
-                // We return a command that the main.rs update loop will catch
-                return Command::perform(async move { python_cmd }, Message::PythonInput);
+                // Use Task::done to hand the command over to the main Python logic
+                return Task::done(Message::PythonInput(python_cmd));
             }
 
             Message::SaveResult(Ok(_)) => {
                 self.is_saving = false;
                 self.save_success = true;
-                // Form is not cleared immediately so user sees success
             }
 
             Message::ResetForm => {
@@ -131,38 +130,33 @@ impl RegistryPage {
             }
             _ => {}
         }
-        Command::none()
+        Task::none()
     }
-    pub fn view(&self) -> Element<Message> {
-        // ... (Keep your existing view code here)
-        let top_left_content: Element<Message, Theme, Renderer> = if self.selected_images.is_empty()
-        {
+
+    pub fn view(&self) -> Element<'_, Message> {
+        let top_left_content: Element<Message> = if self.selected_images.is_empty() {
             column![
                 GlassInputLabel::new("Suspect Images").size(20),
                 GlassButton::new("Attach Photos").on_press(Message::OpenFilePicker),
             ]
-            .align_items(Alignment::Center)
+            .align_x(Alignment::Center)
             .spacing(10)
             .into()
         } else {
             self.image_viewer_logic().into()
         };
 
-        let left_col = column![
-            container(top_left_content)
-                .width(Length::Fill)
-                .height(Length::FillPortion(60))
-                .center_x()
-                .center_y(),
-            Space::with_height(Length::FillPortion(40)),
-        ]
+        let left_col = column![container(top_left_content)
+            .width(Length::Fill)
+            .height(Length::FillPortion(60))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill),]
         .width(Length::FillPortion(40));
 
         let right_col = column![
             container(scrollable(
                 column![
                     GlassInputLabel::new("Criminal Details").size(24),
-                    Space::with_height(20),
                     self.field_group(
                         if self.name_error { "Name *" } else { "Name" },
                         &self.name,
@@ -188,18 +182,24 @@ impl RegistryPage {
             ))
             .height(Length::FillPortion(80))
             .padding(40),
-            container(GlassButton::new("Save to Database").on_press(Message::SubmitForm))
-                .width(Length::Fill)
-                .height(Length::FillPortion(20))
-                .center_x()
-                .center_y(),
+            container(if self.is_saving {
+                GlassButton::new("Saving...").on_press(Message::None) // or a loading indicator
+            } else if self.save_success {
+                GlassButton::new("Saved! (Reset)").on_press(Message::ResetForm)
+            } else {
+                GlassButton::new("Save to Database").on_press(Message::SubmitForm)
+            })
+            .width(Length::Fill)
+            .height(Length::FillPortion(20))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill),
         ]
         .width(Length::FillPortion(60));
 
         row![left_col, right_col].into()
     }
 
-    fn image_viewer_logic(&self) -> Element<Message> {
+    fn image_viewer_logic(&self) -> Element<'_, Message> {
         GlassImageViewer::new(self.selected_images.clone(), self.current_img_idx)
             .view(Message::NextImage, Message::PrevImage)
             .into()

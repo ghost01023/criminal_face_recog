@@ -3,7 +3,7 @@ use crate::components::GlassInputLabel;
 
 use crate::{Message, Page};
 use iced::{
-    widget::{column, container, text, Space},
+    widget::{column, container, text},
     Alignment, Element, Length,
 };
 
@@ -13,9 +13,7 @@ impl MainMenu {
     pub fn view<'a>() -> Element<'a, Message> {
         let title = GlassInputLabel::new("CRIMINAL INTELLIGENCE SYSTEM").size(32);
 
-        let subtitle = text("Select Operation Module")
-            .size(16)
-            .style(iced::Color::from_rgba(0.9, 0.9, 0.9, 0.5));
+        let subtitle = text("Select Operation Module").size(16);
 
         // Create navigation buttons
         let registry_btn =
@@ -34,15 +32,15 @@ impl MainMenu {
             .spacing(20)
             .width(Length::Fixed(400.0));
 
-        let content = column![title, subtitle, Space::with_height(50), menu_items,]
-            .align_items(Alignment::Center)
+        let content = column![title, subtitle, menu_items,]
+            .align_x(Alignment::Center)
             .spacing(10);
 
         container(content)
             .width(Length::Fill)
             .height(Length::Fill)
-            .center_x()
-            .center_y()
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
             .into()
     }
 }

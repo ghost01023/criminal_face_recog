@@ -1,32 +1,39 @@
 use crate::Message;
-use iced::futures;
-use iced::subscription;
+use iced::futures::stream;
+use iced::Subscription;
+
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::{
     io::{BufRead, BufReader, Write},
     process::{ChildStdin, Command, Stdio},
-    sync::{Arc, Mutex as StdMutex},
     thread,
 };
+
 use tokio::sync::{mpsc, Mutex as TokioMutex};
+
+static PYTHON_RX: OnceLock<Arc<TokioMutex<mpsc::Receiver<String>>>> = OnceLock::new();
 
 pub struct PythonProcess {
     stdin: Arc<StdMutex<ChildStdin>>,
-    rx: Arc<TokioMutex<mpsc::Receiver<String>>>,
     _child: std::process::Child,
 }
 
-pub fn python_sub(rx: Arc<TokioMutex<mpsc::Receiver<String>>>) -> iced::Subscription<Message> {
-    subscription::unfold("python_engine", rx, move |rx| async move {
-        let mut rx_guard = rx.lock().await;
-        match rx_guard.recv().await {
-            Some(line) => {
-                drop(rx_guard); // Release lock before returning
-                (Message::PythonOutput(line), rx)
-            }
-            None => {
-                drop(rx_guard);
-                futures::future::pending().await
-            }
+pub fn python_sub() -> Subscription<Message> {
+    Subscription::run(python_stream)
+}
+fn python_stream() -> impl futures::Stream<Item = Message> + Send + 'static {
+    let rx = PYTHON_RX.get().expect("Python RX not initialized").clone();
+
+    stream::unfold(rx, |rx| async move {
+        // scope the lock tightly
+        let next = {
+            let mut guard = rx.lock().await;
+            guard.recv().await
+        }; // <-- guard dropped HERE
+
+        match next {
+            Some(line) => Some((Message::PythonOutput(line), rx)),
+            None => None,
         }
     })
 }
@@ -43,46 +50,30 @@ impl PythonProcess {
             .stderr(Stdio::piped())
             .spawn()?;
 
-        let stdin = child.stdin.take().expect("Failed to open stdin");
-        let stdout = child.stdout.take().expect("Failed to open stdout");
-        let stderr = child.stderr.take().expect("Failed to open stderr");
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
 
-        let (tx, rx) = mpsc::channel(100);
+        let (tx, rx) = mpsc::channel::<String>(100);
+        let rx = Arc::new(TokioMutex::new(rx));
+        let _ = PYTHON_RX.set(rx.clone());
 
-        // STDOUT Thread
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                match line {
-                    Ok(l) => {
-                        eprintln!("[PY-OUT-RAW] {}", l);
-                        if tx.blocking_send(l).is_err() {
-                            eprintln!("[PY-OUT] Channel closed");
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("[PY-OUT-ERR] {}", e);
-                        break;
-                    }
-                }
+            for line in reader.lines().flatten() {
+                let _ = tx.blocking_send(line);
             }
-            eprintln!("[PY-OUT] Thread exiting");
         });
 
-        // STDERR Thread
         thread::spawn(move || {
             let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(l) = line {
-                    eprintln!("[PY-ERR] {}", l);
-                }
+            for line in reader.lines().flatten() {
+                eprintln!("[PYTHON-ERR] {}", line);
             }
         });
 
         Ok(Self {
             stdin: Arc::new(StdMutex::new(stdin)),
-            rx: Arc::new(TokioMutex::new(rx)),
             _child: child,
         })
     }
@@ -91,9 +82,5 @@ impl PythonProcess {
         let mut stdin = self.stdin.lock().unwrap();
         writeln!(&mut *stdin, "{}", message)?;
         stdin.flush()
-    }
-
-    pub fn get_rx(&self) -> Arc<TokioMutex<mpsc::Receiver<String>>> {
-        Arc::clone(&self.rx)
     }
 }

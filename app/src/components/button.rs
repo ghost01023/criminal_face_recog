@@ -1,61 +1,12 @@
-use iced::{
-    widget::{button, text, Button},
-    Background, Border, Color, Element, Shadow, Vector,
-};
+use iced::widget::{button, text, Button};
+use iced::{Background, Border, Color, Element, Shadow, Theme};
 
 pub struct GlassButton<'a, Message> {
     label: &'a str,
     on_press: Option<Message>,
 }
 
-// 1. Define a struct for the style
-struct CustomButtonStyle;
-
-// 2. Implement the StyleSheet trait for the struct
-impl button::StyleSheet for CustomButtonStyle {
-    type Style = iced::Theme;
-
-    fn active(&self, _style: &Self::Style) -> button::Appearance {
-        button::Appearance {
-            background: Some(Background::Color(Color::from_rgba(0.2, 0.9, 0.5, 0.15))),
-            border: Border {
-                color: Color::from_rgba(0.4, 0.9, 0.5, 0.3),
-                width: 1.0,
-                radius: 8.0.into(),
-            },
-            text_color: Color::from_rgb(0.4, 0.9, 0.5),
-            shadow_offset: Vector::ZERO,
-            shadow: Shadow::default(),
-        }
-    }
-
-    fn hovered(&self, style: &Self::Style) -> button::Appearance {
-        let active = self.active(style);
-        button::Appearance {
-            background: Some(Background::Color(Color::from_rgba(0.2, 0.9, 0.5, 0.25))),
-            ..active
-        }
-    }
-
-    fn pressed(&self, style: &Self::Style) -> button::Appearance {
-        let active = self.active(style);
-        button::Appearance {
-            background: Some(Background::Color(Color::from_rgba(0.2, 0.9, 0.5, 0.35))),
-            ..active
-        }
-    }
-
-    fn disabled(&self, style: &Self::Style) -> button::Appearance {
-        let active = self.active(style);
-        button::Appearance {
-            background: Some(Background::Color(Color::TRANSPARENT)),
-            text_color: Color::from_rgba(0.4, 0.9, 0.5, 0.2),
-            ..active
-        }
-    }
-}
-
-impl<'a, Message: Clone> GlassButton<'a, Message> {
+impl<'a, Message: Clone + 'a> GlassButton<'a, Message> {
     pub fn new(label: &'a str) -> Self {
         Self {
             label,
@@ -72,11 +23,41 @@ impl<'a, Message: Clone> GlassButton<'a, Message> {
         let btn = button(
             text(self.label)
                 .size(16)
-                .style(Color::from_rgb(0.9, 0.9, 0.9)),
+                // Use .color() directly for text in 0.14 to avoid inference errors
+                .color(Color::from_rgb(0.9, 0.9, 0.9)),
         )
         .padding([12, 24])
-        // 3. Use the custom style
-        .style(iced::theme::Button::custom(CustomButtonStyle));
+        // 0.14 styling: Use a closure that receives (Theme, Status)
+        .style(|_theme: &Theme, status: button::Status| {
+            let base_style = button::Style {
+                snap: true,
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.9, 0.5, 0.15))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.9, 0.5, 0.3),
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                text_color: Color::from_rgb(0.4, 0.9, 0.5),
+                shadow: Shadow::default(),
+            };
+
+            match status {
+                button::Status::Hovered => button::Style {
+                    background: Some(Background::Color(Color::from_rgba(0.2, 0.9, 0.5, 0.25))),
+                    ..base_style
+                },
+                button::Status::Pressed => button::Style {
+                    background: Some(Background::Color(Color::from_rgba(0.2, 0.9, 0.5, 0.35))),
+                    ..base_style
+                },
+                button::Status::Disabled => button::Style {
+                    background: Some(Background::Color(Color::TRANSPARENT)),
+                    text_color: Color::from_rgba(0.4, 0.9, 0.5, 0.2),
+                    ..base_style
+                },
+                button::Status::Active => base_style,
+            }
+        });
 
         if let Some(msg) = self.on_press {
             btn.on_press(msg)

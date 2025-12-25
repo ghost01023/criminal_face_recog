@@ -1,8 +1,9 @@
-use iced::{widget::text, Color, Element};
+use iced::widget::text;
+use iced::{Color, Element};
 
 pub struct GlassInputLabel<'a> {
     label: &'a str,
-    size: u16,
+    size: u32, // Changed from u16 to u32
     color: Color,
 }
 
@@ -10,12 +11,13 @@ impl<'a> GlassInputLabel<'a> {
     pub fn new(label: &'a str) -> Self {
         Self {
             label,
-            size: 14,                              // Default size
-            color: Color::from_rgb(0.4, 0.9, 0.5), // Default neon green
+            size: 14,
+            color: Color::from_rgb(0.4, 0.9, 0.5),
         }
     }
 
-    pub fn size(mut self, size: u16) -> Self {
+    pub fn size(mut self, size: u32) -> Self {
+        // Now accepts u32
         self.size = size;
         self
     }
@@ -26,7 +28,9 @@ impl<'a> GlassInputLabel<'a> {
     }
 
     pub fn view<Message: 'static>(self) -> Element<'a, Message> {
-        text(self.label).size(self.size).style(self.color).into()
+        // 1. Use .size(self.size) which now works because self.size is u32
+        // 2. Use .color(self.color) instead of .style() for direct coloring
+        text(self.label).size(self.size).color(self.color).into()
     }
 }
 

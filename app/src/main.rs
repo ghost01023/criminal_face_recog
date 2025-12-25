@@ -1,40 +1,23 @@
 use app::database::CriminalDB;
 use app::pages::*;
-use app::python_process::python_sub;
-use app::python_process::PythonProcess;
+use app::python_process::{python_sub, PythonProcess};
 use app::Message;
 use app::Page;
-use iced::{Application, Command, Element, Settings, Theme};
-use rfd;
+
+use iced::{Element, Subscription, Task, Theme};
 use std::sync::Arc;
-use tokio::sync::mpsc;
-use tokio::sync::Mutex as TokioMutex;
+
 pub struct GlassmorphismApp {
     current_page: Page,
-    registry_state: RegistryPage, // The form data lives here
+    registry_state: RegistryPage,
     image_find: ImageFindPage,
     video_find: VideoFindPage,
     model_engine: Option<PythonProcess>,
-    python_rx: Option<Arc<TokioMutex<mpsc::Receiver<String>>>>,
-    db: Option<std::sync::Arc<CriminalDB>>,
+    db: Option<Arc<CriminalDB>>,
 }
 
-impl Application for GlassmorphismApp {
-    type Executor = iced::executor::Default;
-    type Message = Message;
-    type Theme = Theme;
-    type Flags = ();
-
-    fn subscription(&self) -> iced::Subscription<Message> {
-        if let Some(ref rx) = self.python_rx {
-            eprintln!("[RUST] Subscription active");
-            python_sub(Arc::clone(rx))
-        } else {
-            eprintln!("[RUST] No subscription");
-            iced::Subscription::none()
-        }
-    }
-    fn new(_flags: ()) -> (Self, Command<Message>) {
+impl GlassmorphismApp {
+    pub fn new() -> (Self, Task<Message>) {
         let db_url = "mysql://root:@localhost:3306/criminal_recognizer".to_string();
 
         let engine = PythonProcess::spawn(
@@ -43,229 +26,130 @@ impl Application for GlassmorphismApp {
         )
         .ok();
 
-        let python_rx = engine.as_ref().map(|e| e.get_rx());
+        let app = Self {
+            current_page: Page::MainMenu,
+            registry_state: RegistryPage::default(),
+            image_find: ImageFindPage::default(),
+            video_find: VideoFindPage::default(),
+            model_engine: engine,
+            db: None,
+        };
 
-        (
-            Self {
-                current_page: Page::MainMenu,
-                registry_state: RegistryPage::default(),
-                image_find: ImageFindPage::default(),
-                video_find: VideoFindPage::default(),
-                model_engine: engine,
-                python_rx,
-                db: None,
-            },
-            Command::batch(vec![
-                Command::perform(
-                    async move {
-                        CriminalDB::new(&db_url)
-                            .await
-                            .map(std::sync::Arc::new)
-                            .map_err(|e| e.to_string())
-                    },
-                    |result| Message::DbConnected(result),
-                ),
-                Command::perform(
-                    async {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-                    },
-                    |_| Message::InitializePython,
-                ),
-            ]),
-        )
-    }
-    fn title(&self) -> String {
-        String::from("Criminal Recognizer")
+        let init_task = Task::batch(vec![
+            Task::perform(
+                async move {
+                    CriminalDB::new(&db_url)
+                        .await
+                        .map(Arc::new)
+                        .map_err(|e| e.to_string())
+                },
+                Message::DbConnected,
+            ),
+            Task::perform(
+                async {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                },
+                |_| Message::InitializePython,
+            ),
+        ]);
+
+        (app, init_task)
     }
 
-    fn update(&mut self, message: Message) -> Command<Message> {
+    pub fn title(&self) -> String {
+        "Criminal Recognizer".to_string()
+    }
+
+    pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::InitializePython => {
-                eprintln!("[RUST] Sending start command to Python");
                 if let Some(ref mut engine) = self.model_engine {
-                    match engine.send("start") {
-                        Ok(_) => eprintln!("[RUST] Start command sent successfully"),
-                        Err(e) => eprintln!("[RUST] Failed to send start: {}", e),
-                    }
-                } else {
-                    eprintln!("[RUST] No engine available!");
+                    let _ = engine.send("start");
                 }
-                Command::none()
+                Task::none()
             }
-            Message::PythonInput(text) => {
-                if let Some(ref mut engine) = self.model_engine {
-                    let parts: Vec<&str> = text.split_whitespace().collect();
-                    let cmd_type = parts[0];
-                    if cmd_type == "identify" {
-                        let media_type = parts[1];
-                        if media_type == "image" {
-                            let image_path = parts[2];
-                            let command = format!("identify image {}", image_path);
-                            match engine.send(&command) {
-                                Ok(_) => eprintln!("[RUST] Sent: {}", command),
-                                Err(e) => eprintln!("[RUST] Failed to send: {}", e),
-                            }
-                        } else if media_type == "video" {
-                            let video_path = parts[2];
-                            let command = format!("identify video {}", video_path);
-                            match engine.send(&command) {
-                                Ok(_) => eprintln!("[RUST] Sent: {}", command),
-                                Err(e) => eprintln!("[RUST] Failed to send: {}", e),
-                            }
-                        }
-                    } else if cmd_type == "add" {
-                        match engine.send(&text) {
-                            Ok(_) => eprintln!("OK"),
-                            Err(e) => eprintln!("Not ok"),
-                        }
-                    }
-                }
-                Command::none()
-            }
+
             Message::PythonOutput(text) => {
-                eprintln!("[RUST] Received from Python: {}", text);
+                eprintln!("[RUST] Python output: {}", text);
 
                 if text.starts_with("added") {
-                    // Formally finish the registry process
                     return self.registry_state.update(Message::SaveResult(Ok(0)), None);
                 }
+
                 let parts: Vec<&str> = text.split_whitespace().collect();
-
-                if !parts.is_empty() && parts[0] == "identity" {
-                    // 1. Safely extract parts[1] and convert to an owned String
-                    if let Some(id_str) = parts.get(1) {
-                        let identity_val = id_str.to_string(); // This creates a new allocation
-                        println!("IDENTITY REVEALED: {}", identity_val);
-
-                        if self.current_page == Page::ImageFind
-                            || self.current_page == Page::VideoFind
-                        {
-                            // 2. Use 'move' to pass ownership of identity_val into the closure
-                            return Command::perform(async {}, move |_| {
-                                Message::Identity(identity_val)
-                            });
+                if parts.get(0) == Some(&"identity") {
+                    if let Some(identity_val) = parts.get(1).map(|s| s.to_string()) {
+                        if matches!(self.current_page, Page::ImageFind | Page::VideoFind) {
+                            return Task::done(Message::Identity(identity_val));
                         }
                     }
                 }
-                Command::none()
-            }
-            Message::IdentifyCriminalImage(img_path) => {
-                if let Some(engine) = &mut self.model_engine {
-                    // 1. Format the command for Python
-                    let cmd = format!("identify image {}", img_path);
-
-                    // 2. Send it to the Python process via stdin
-                    if let Err(e) = engine.send(&cmd) {
-                        eprintln!("Failed to send command to Python: {}", e);
-                    } else {
-                        // Optional: Set a loading state in your UI
-                        self.image_find.is_identifying = true;
-                    }
-                }
-                Command::none()
+                Task::none()
             }
 
-            Message::IdentifyCriminalVideo(vid_path) => {
-                if let Some(engine) = &mut self.model_engine {
-                    // 1. Format the command for Python
-                    let cmd = format!("identify video {}", vid_path);
+            Message::OpenFilePicker => {
+                let filter_name = match self.current_page {
+                    Page::VideoFind => "Videos",
+                    _ => "Images",
+                };
+                let extensions = match self.current_page {
+                    Page::VideoFind => vec!["mp4", "mkv", "webm", "avi"],
+                    _ => vec!["jpg", "png", "jpeg"],
+                };
 
-                    // 2. Send it to the Python process via stdin
-                    if let Err(e) = engine.send(&cmd) {
-                        eprintln!("Failed to send command to Python: {}", e);
-                    } else {
-                        // Optional: Set a loading state in your UI
-                        self.video_find.is_scanning = true;
-                    }
-                }
-                Command::none()
+                Task::perform(
+                    async move {
+                        let file = rfd::AsyncFileDialog::new()
+                            .add_filter(filter_name, &extensions)
+                            .pick_file()
+                            .await;
+
+                        file.map(|handle| vec![handle.path().to_path_buf()])
+                            .unwrap_or_default()
+                    },
+                    Message::FilesSelected,
+                )
             }
 
-            Message::Identity(ref criminal_id) => {
-                match self.current_page {
-                    Page::ImageFind => {
-                        // Return the Command returned by the page so the DB query runs!
-                        self.image_find.update(message.clone(), self.db.clone())
-                    }
-                    Page::VideoFind => self.video_find.update(message.clone(), self.db.clone()),
-                    _ => Command::none(),
-                }
-            }
-
-            // Ensure IdentityDataLoaded and IdentityError are also forwarded and returned
-            Message::IdentityDataLoaded(_) | Message::IdentityError(_) => match self.current_page {
-                Page::ImageFind => self.image_find.update(message, self.db.clone()),
-                Page::VideoFind => self.video_find.update(message, self.db.clone()),
-                _ => Command::none(),
-            },
             Message::GoTo(page) => {
                 self.current_page = page;
                 self.image_find.selected_image = Vec::new();
-                Command::none()
+                Task::none()
             }
+
             Message::DbConnected(Ok(db_arc)) => {
                 self.db = Some(db_arc);
-                Command::none()
+                Task::none()
             }
-            Message::OpenFilePicker => match self.current_page {
-                Page::VideoFind => Command::perform(
-                    async {
-                        rfd::FileDialog::new()
-                            .add_filter("Videos", &["mp4", "mkv", "webm", "avi"])
-                            .pick_files()
-                            .unwrap_or_default()
-                    },
-                    Message::FilesSelected,
-                ),
-                Page::ImageFind => Command::perform(
-                    async {
-                        rfd::FileDialog::new()
-                            .add_filter("Images", &["jpg", "png", "jpeg"])
-                            .pick_files()
-                            .unwrap_or_default()
-                    },
-                    Message::FilesSelected,
-                ),
-                Page::Registry => Command::perform(
-                    async {
-                        rfd::FileDialog::new()
-                            .add_filter("Images", &["jpg", "png", "jpeg"])
-                            .pick_files()
-                            .unwrap_or_default()
-                    },
-                    Message::FilesSelected,
-                ),
-                _ => self.registry_state.update(message, self.db.clone()),
-            },
+
+            Message::Identity(_) | Message::IdentityDataLoaded(_) | Message::IdentityError(_) => {
+                match self.current_page {
+                    Page::ImageFind => self.image_find.update(message, self.db.clone()),
+                    Page::VideoFind => self.video_find.update(message, self.db.clone()),
+                    _ => Task::none(),
+                }
+            }
+
             Message::FilesSelected(_) => match self.current_page {
                 Page::Registry => self.registry_state.update(message, self.db.clone()),
-                Page::ImageFind => {
-                    ImageFindPage::update(&mut self.image_find, message, self.db.clone())
-                }
-                Page::VideoFind => {
-                    VideoFindPage::update(&mut self.video_find, message, self.db.clone())
-                }
-                _ => self.registry_state.update(message, self.db.clone()),
+                Page::ImageFind => self.image_find.update(message, self.db.clone()),
+                Page::VideoFind => self.video_find.update(message, self.db.clone()),
+                _ => Task::none(),
             },
-            // actually reach the page-specific logic.
+
             _ => match self.current_page {
                 Page::ImageFind => self.image_find.update(message, self.db.clone()),
                 Page::VideoFind => self.video_find.update(message, self.db.clone()),
                 Page::Registry => self.registry_state.update(message, self.db.clone()),
-                _ => Command::none(),
+                _ => Task::none(),
             },
         }
     }
-    fn view(&self) -> Element<Message> {
+
+    pub fn view(&self) -> Element<'_, Message> {
         match self.current_page {
-            Page::Dashboard => {
-                // Return a different view here
-                iced::widget::text("Welcome to Dashboard").into()
-            }
-            Page::Registry => {
-                // Call the Registry Page's view
-                self.registry_state.view()
-            }
+            Page::Dashboard => iced::widget::text("Welcome to Dashboard").into(),
+            Page::Registry => self.registry_state.view(),
             Page::MainMenu => MainMenu::view(),
             Page::ImageFind => self.image_find.view(),
             Page::VideoFind => self.video_find.view(),
@@ -273,11 +157,22 @@ impl Application for GlassmorphismApp {
         }
     }
 
-    fn theme(&self) -> Theme {
+    pub fn subscription(&self) -> Subscription<Message> {
+        python_sub()
+    }
+
+    pub fn theme(&self) -> Theme {
         Theme::Dark
     }
 }
 
 pub fn main() -> iced::Result {
-    GlassmorphismApp::run(Settings::default())
+    iced::application(
+        GlassmorphismApp::new,
+        GlassmorphismApp::update,
+        GlassmorphismApp::view,
+    )
+    .subscription(GlassmorphismApp::subscription)
+    .theme(GlassmorphismApp::theme)
+    .run()
 }

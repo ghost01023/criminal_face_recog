@@ -20,6 +20,7 @@ pub enum Page {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    None,
     // --- Page Navigation ---
     GoTo(Page),
 

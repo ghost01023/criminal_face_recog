@@ -1,55 +1,47 @@
+use crate::Message;
 use iced::widget::{column, container, text};
-use iced::{Alignment, Color, Element, Length, Renderer, Theme};
+use iced::{Alignment, Background, Border, Color, Element, Length, Theme};
+use iced_video_player::{Video, VideoPlayer};
 
-pub struct VideoViewer {
+pub struct VideoViewer<'a> {
+    video: &'a Video,
     path: String,
-    is_looping: bool,
 }
 
-impl VideoViewer {
-    pub fn new(path: String) -> Self {
-        Self {
-            path,
-            is_looping: true,
-        }
+impl<'a> VideoViewer<'a> {
+    pub fn new(video: &'a Video, path: String) -> Self {
+        Self { video, path }
     }
 
-    pub fn view<Message>(&self) -> Element<'static, Message, Theme, Renderer>
-    where
-        Message: 'static,
-    {
-        // In a production iced app, you would use a dedicated crate
-        // like `iced_video_player`. For this UI structure, we represent the video
-        // container where the frames would be rendered.
+    pub fn view(&self) -> Element<'a, Message> {
+        // ✅ iced_video_player 0.6.0 PUBLIC API
+        let player = VideoPlayer::new(self.video)
+            .width(Length::Fill)
+            .height(Length::Fill);
+
         container(
             column![
-                text("VIDEO PLAYBACK")
+                player,
+                text(format!("Source: {}", self.path))
                     .size(12)
-                    .style(Color::from_rgba(1.0, 1.0, 1.0, 0.5)),
-                text(format!("Source: {}", self.path)).size(14),
-                text(if self.is_looping { "Mode: Looping" } else { "" }).size(12),
+                    .style(|_theme| text::Style {
+                        color: Some(Color::from_rgba(1.0, 1.0, 1.0, 0.5)),
+                    })
             ]
             .spacing(10)
-            .align_items(Alignment::Center),
+            .align_x(Alignment::Center),
         )
         .width(Length::Fill)
         .height(Length::Fill)
-        .center_x()
-        .center_y()
-        .style(iced::theme::Container::Custom(Box::new(VideoBoxStyle)))
-        .into()
-    }
-}
-
-struct VideoBoxStyle;
-impl iced::widget::container::StyleSheet for VideoBoxStyle {
-    type Style = Theme;
-    fn appearance(&self, _style: &Self::Style) -> iced::widget::container::Appearance {
-        iced::widget::container::Appearance {
-            background: Some(iced::Background::Color(Color::from_rgba(
-                0.05, 0.05, 0.05, 1.0,
-            ))),
+        .style(|_theme: &Theme| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.05, 0.05, 0.05, 1.0))),
+            border: Border {
+                color: Color::from_rgba(0.4, 0.8, 1.0, 0.2),
+                width: 1.0,
+                radius: 8.0.into(),
+            },
             ..Default::default()
-        }
+        })
+        .into()
     }
 }
