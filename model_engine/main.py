@@ -257,7 +257,6 @@ logging.basicConfig(level=logging.INFO)
 fr = FaceRecognizer()
 
 logger.info("Face recognizer initialized, waiting for commands")
-
 # Just start listening for commands - don't print anything first
 for line in sys.stdin:
     line = line.strip()
@@ -273,6 +272,7 @@ for line in sys.stdin:
             print("ready", flush=True)
 
         elif cmd == "identify":
+            print("IDENTIFYING", flush=True)
             if len(recv_msg) < 3:
                 print("error missing_path", flush=True)
                 continue
@@ -283,6 +283,7 @@ for line in sys.stdin:
             if media_type == "image":
                 criminal_id, confidence = fr.identify(media_path)
             elif media_type == "video":
+                print("media_path is ", media_path, flush=True)
                 criminal_id, confidence = fr.identify_from_video(media_path)
             else:
                 print("error unknown_media_type", flush=True)

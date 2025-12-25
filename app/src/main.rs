@@ -6,7 +6,6 @@ use app::Message;
 use app::Page;
 use iced::{Application, Command, Element, Settings, Theme};
 use rfd;
-use std::cell::RefCell;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex as TokioMutex;
@@ -93,16 +92,99 @@ impl Application for GlassmorphismApp {
                 }
                 Command::none()
             }
-            Message::PythonOutput(text) => {
-                eprintln!("[RUST] Received from Python: {}", text);
-                let parts: Vec<&str> = text.split_whitespace().collect();
-                if parts.len() > 0 && parts[0] == "identity" {
-                    println!("IDENTITY REVEALED");
+            Message::PythonInput(text) => {
+                if let Some(ref mut engine) = self.model_engine {
+                    let parts: Vec<&str> = text.split_whitespace().collect();
+                    let cmd_type = parts[0];
+                    if cmd_type == "identify" {
+                        let media_type = parts[1];
+                        if media_type == "image" {
+                            let image_path = parts[2];
+                            let command = format!("identify image {}", image_path);
+                            match engine.send(&command) {
+                                Ok(_) => eprintln!("[RUST] Sent: {}", command),
+                                Err(e) => eprintln!("[RUST] Failed to send: {}", e),
+                            }
+                        } else if media_type == "video" {
+                            let video_path = parts[2];
+                            let command = format!("identify video {}", video_path);
+                            match engine.send(&command) {
+                                Ok(_) => eprintln!("[RUST] Sent: {}", command),
+                                Err(e) => eprintln!("[RUST] Failed to send: {}", e),
+                            }
+                        }
+                    }
                 }
                 Command::none()
             }
+            Message::PythonOutput(text) => {
+                eprintln!("[RUST] Received from Python: {}", text);
+                let parts: Vec<&str> = text.split_whitespace().collect();
+
+                if !parts.is_empty() && parts[0] == "identity" {
+                    // 1. Safely extract parts[1] and convert to an owned String
+                    if let Some(id_str) = parts.get(1) {
+                        let identity_val = id_str.to_string(); // This creates a new allocation
+                        println!("IDENTITY REVEALED: {}", identity_val);
+
+                        if self.current_page == Page::ImageFind
+                            || self.current_page == Page::VideoFind
+                        {
+                            // 2. Use 'move' to pass ownership of identity_val into the closure
+                            return Command::perform(async {}, move |_| {
+                                Message::Identity(identity_val)
+                            });
+                        }
+                    }
+                }
+                Command::none()
+            }
+            Message::IdentifyCriminalImage(img_path) => {
+                if let Some(engine) = &mut self.model_engine {
+                    // 1. Format the command for Python
+                    let cmd = format!("identify image {}", img_path);
+
+                    // 2. Send it to the Python process via stdin
+                    if let Err(e) = engine.send(&cmd) {
+                        eprintln!("Failed to send command to Python: {}", e);
+                    } else {
+                        // Optional: Set a loading state in your UI
+                        self.image_find.is_identifying = true;
+                    }
+                }
+                Command::none()
+            }
+
+            Message::IdentifyCriminalVideo(vid_path) => {
+                if let Some(engine) = &mut self.model_engine {
+                    // 1. Format the command for Python
+                    let cmd = format!("identify video {}", vid_path);
+
+                    // 2. Send it to the Python process via stdin
+                    if let Err(e) = engine.send(&cmd) {
+                        eprintln!("Failed to send command to Python: {}", e);
+                    } else {
+                        // Optional: Set a loading state in your UI
+                        self.video_find.is_scanning = true;
+                    }
+                }
+                Command::none()
+            }
+
+            Message::Identity(ref criminal_id) => {
+                if self.current_page == Page::ImageFind {
+                    let _ = self.image_find.update(message);
+                    Command::none()
+                } else if self.current_page == Page::VideoFind {
+                    let _ = self.video_find.update(message);
+                    Command::none()
+                } else {
+                    Command::none()
+                }
+            }
             Message::GoTo(page) => {
                 self.current_page = page;
+                self.image_find.selected_image = Vec::new();
                 Command::none()
             }
             Message::DbConnected(Ok(db_arc)) => {

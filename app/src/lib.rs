@@ -42,5 +42,9 @@ pub enum Message {
 
     // --- PythonProcess model_engine Events ---
     InitializePython,
+    IdentifyCriminalImage(String),
+    IdentifyCriminalVideo(String),
+    PythonInput(String),
     PythonOutput(String),
+    Identity(String),
 }
