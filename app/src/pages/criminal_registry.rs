@@ -11,7 +11,6 @@ use iced::{
 };
 use std::sync::Arc;
 
-#[derive(Default)]
 pub struct RegistryPage {
     pub name: String,
     pub fathers_name: String,
@@ -20,33 +19,44 @@ pub struct RegistryPage {
     pub name_error: bool,
     pub selected_images: Vec<String>,
     pub current_img_idx: usize,
+    pub is_saving: bool,    // Added for UI feedback
+    pub save_success: bool, // Added for UI feedback
 }
 
+impl Default for RegistryPage {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            fathers_name: String::new(),
+            no_of_crimes: String::new(),
+            arrested_location: String::new(),
+            name_error: false,
+            selected_images: Vec::new(),
+            current_img_idx: 0,
+            is_saving: false,
+            save_success: false,
+        }
+    }
+}
 impl RegistryPage {
     /// Decoupled logic for handling Registry-specific messages
     pub fn update(&mut self, message: Message, db: Option<Arc<CriminalDB>>) -> Command<Message> {
         match message {
-            Message::NameChanged(s) => {
-                self.name = s;
+            Message::NameChanged(value) => {
+                self.name = value;
                 self.name_error = false;
             }
-            Message::FathersNameChanged(s) => self.fathers_name = s,
-            Message::CrimesCountChanged(s) => self.no_of_crimes = s,
-            Message::LocationChanged(s) => self.arrested_location = s,
 
-            Message::NextImage => {
-                if !self.selected_images.is_empty() {
-                    self.current_img_idx = (self.current_img_idx + 1) % self.selected_images.len();
-                }
+            Message::FathersNameChanged(value) => {
+                self.fathers_name = value;
             }
-            Message::PrevImage => {
-                if !self.selected_images.is_empty() {
-                    self.current_img_idx = if self.current_img_idx == 0 {
-                        self.selected_images.len() - 1
-                    } else {
-                        self.current_img_idx - 1
-                    };
-                }
+
+            Message::CrimesCountChanged(value) => {
+                self.no_of_crimes = value;
+            }
+
+            Message::LocationChanged(value) => {
+                self.arrested_location = value;
             }
 
             Message::SubmitForm => {
@@ -56,11 +66,11 @@ impl RegistryPage {
                 }
 
                 let Some(db) = db else {
-                    eprintln!("Database not connected yet.");
                     return Command::none();
                 };
 
-                // Clone data for async block
+                self.is_saving = true;
+
                 let name = self.name.clone();
                 let f_name = (!self.fathers_name.is_empty()).then(|| self.fathers_name.clone());
                 let loc =
@@ -70,25 +80,46 @@ impl RegistryPage {
 
                 return Command::perform(
                     async move {
+                        // 1. Save to Rust Database first to get the ID
                         let criminal_id = db
                             .add_criminal(name, f_name, loc, crimes)
                             .await
                             .map_err(|e| e.to_string())?;
 
-                        for path in photo_paths {
+                        // 2. Save photos to Rust Database (for retrieval later)
+                        for path in &photo_paths {
                             if let Ok(bytes) = std::fs::read(path) {
-                                db.add_criminal_photo(criminal_id, bytes)
-                                    .await
-                                    .map_err(|e| e.to_string())?;
+                                let _ = db.add_criminal_photo(criminal_id, bytes).await;
                             }
                         }
-                        Ok(criminal_id)
+
+                        // 3. Return the ID and paths so we can tell Python to "add" them
+                        Ok((criminal_id, photo_paths))
                     },
-                    Message::SaveResult,
+                    |result| match result {
+                        Ok((id, paths)) => Message::DatabaseSaved(id, paths),
+                        Err(e) => Message::SaveResult(Err(e)),
+                    },
                 );
             }
+
+            Message::DatabaseSaved(id, paths) => {
+                // Now we tell the Main loop to send to Python
+                let paths_str = paths.join("&");
+                let python_cmd = format!("add {} {}", id, paths_str);
+
+                // We return a command that the main.rs update loop will catch
+                return Command::perform(async move { python_cmd }, Message::PythonInput);
+            }
+
             Message::SaveResult(Ok(_)) => {
-                *self = RegistryPage::default(); // Reset form on success
+                self.is_saving = false;
+                self.save_success = true;
+                // Form is not cleared immediately so user sees success
+            }
+
+            Message::ResetForm => {
+                *self = RegistryPage::default();
             }
 
             Message::FilesSelected(paths) => {
@@ -102,7 +133,6 @@ impl RegistryPage {
         }
         Command::none()
     }
-
     pub fn view(&self) -> Element<Message> {
         // ... (Keep your existing view code here)
         let top_left_content: Element<Message, Theme, Renderer> = if self.selected_images.is_empty()

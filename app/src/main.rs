@@ -113,12 +113,22 @@ impl Application for GlassmorphismApp {
                                 Err(e) => eprintln!("[RUST] Failed to send: {}", e),
                             }
                         }
+                    } else if cmd_type == "add" {
+                        match engine.send(&text) {
+                            Ok(_) => eprintln!("OK"),
+                            Err(e) => eprintln!("Not ok"),
+                        }
                     }
                 }
                 Command::none()
             }
             Message::PythonOutput(text) => {
                 eprintln!("[RUST] Received from Python: {}", text);
+
+                if text.starts_with("added") {
+                    // Formally finish the registry process
+                    return self.registry_state.update(Message::SaveResult(Ok(0)), None);
+                }
                 let parts: Vec<&str> = text.split_whitespace().collect();
 
                 if !parts.is_empty() && parts[0] == "identity" {
@@ -172,16 +182,22 @@ impl Application for GlassmorphismApp {
             }
 
             Message::Identity(ref criminal_id) => {
-                if self.current_page == Page::ImageFind {
-                    let _ = self.image_find.update(message);
-                    Command::none()
-                } else if self.current_page == Page::VideoFind {
-                    let _ = self.video_find.update(message);
-                    Command::none()
-                } else {
-                    Command::none()
+                match self.current_page {
+                    Page::ImageFind => {
+                        // Return the Command returned by the page so the DB query runs!
+                        self.image_find.update(message.clone(), self.db.clone())
+                    }
+                    Page::VideoFind => self.video_find.update(message.clone(), self.db.clone()),
+                    _ => Command::none(),
                 }
             }
+
+            // Ensure IdentityDataLoaded and IdentityError are also forwarded and returned
+            Message::IdentityDataLoaded(_) | Message::IdentityError(_) => match self.current_page {
+                Page::ImageFind => self.image_find.update(message, self.db.clone()),
+                Page::VideoFind => self.video_find.update(message, self.db.clone()),
+                _ => Command::none(),
+            },
             Message::GoTo(page) => {
                 self.current_page = page;
                 self.image_find.selected_image = Vec::new();
@@ -222,11 +238,22 @@ impl Application for GlassmorphismApp {
                 _ => self.registry_state.update(message, self.db.clone()),
             },
             Message::FilesSelected(_) => match self.current_page {
-                Page::ImageFind => ImageFindPage::update(&mut self.image_find, message),
-                Page::VideoFind => VideoFindPage::update(&mut self.video_find, message),
+                Page::Registry => self.registry_state.update(message, self.db.clone()),
+                Page::ImageFind => {
+                    ImageFindPage::update(&mut self.image_find, message, self.db.clone())
+                }
+                Page::VideoFind => {
+                    VideoFindPage::update(&mut self.video_find, message, self.db.clone())
+                }
                 _ => self.registry_state.update(message, self.db.clone()),
             },
-            _ => self.registry_state.update(message, self.db.clone()),
+            // actually reach the page-specific logic.
+            _ => match self.current_page {
+                Page::ImageFind => self.image_find.update(message, self.db.clone()),
+                Page::VideoFind => self.video_find.update(message, self.db.clone()),
+                Page::Registry => self.registry_state.update(message, self.db.clone()),
+                _ => Command::none(),
+            },
         }
     }
     fn view(&self) -> Element<Message> {

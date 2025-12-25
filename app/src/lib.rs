@@ -23,6 +23,8 @@ pub enum Message {
     // --- Page Navigation ---
     GoTo(Page),
 
+    ResetForm,
+    DatabaseSaved(u32, Vec<String>),
     // --- Registry Form Inputs ---
     NameChanged(String),
     FathersNameChanged(String),
@@ -47,4 +49,6 @@ pub enum Message {
     PythonInput(String),
     PythonOutput(String),
     Identity(String),
+    IdentityDataLoaded(entities::criminal::Model), // Success from DB
+    IdentityError(String),
 }
