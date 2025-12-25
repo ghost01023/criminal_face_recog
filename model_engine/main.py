@@ -149,6 +149,7 @@ class FaceRecognizer:
 
         self.embeddings[name].append(emb)
         self._prune_embeddings(name)
+        print("ADDED PERSON", flush=True)
 
         return True
 
@@ -293,6 +294,7 @@ for line in sys.stdin:
             print(f"identity {out_id} {confidence:.4f}", flush=True)
 
         elif cmd == "add":
+            print("IN ADD FUNC NOW", flush=True)
             if len(recv_msg) < 3:
                 print("error missing_add_data", flush=True)
                 continue

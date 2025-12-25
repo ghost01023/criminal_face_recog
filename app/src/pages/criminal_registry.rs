@@ -79,6 +79,7 @@ impl RegistryPage {
                 let crimes = self.no_of_crimes.parse::<u32>().unwrap_or(1);
                 let photo_paths = self.selected_images.clone();
 
+                println!("ATTEMPTING TO ADD TO DATABASE");
                 // UPDATED: Command::perform -> Task::perform
                 return Task::perform(
                     async move {
@@ -128,6 +129,22 @@ impl RegistryPage {
                     .collect();
                 self.current_img_idx = 0;
             }
+            Message::NextImage => {
+                if !self.selected_images.is_empty() {
+                    // Circular increment
+                    self.current_img_idx = (self.current_img_idx + 1) % self.selected_images.len();
+                }
+            }
+            Message::PrevImage => {
+                if !self.selected_images.is_empty() {
+                    // Circular decrement
+                    if self.current_img_idx == 0 {
+                        self.current_img_idx = self.selected_images.len() - 1;
+                    } else {
+                        self.current_img_idx -= 1;
+                    }
+                }
+            }
             _ => {}
         }
         Task::none()
@@ -156,7 +173,7 @@ impl RegistryPage {
         let right_col = column![
             container(scrollable(
                 column![
-                    GlassInputLabel::new("Criminal Details").size(24),
+                    GlassInputLabel::new("Criminal Details").size(42),
                     self.field_group(
                         if self.name_error { "Name *" } else { "Name" },
                         &self.name,
@@ -180,8 +197,7 @@ impl RegistryPage {
                 ]
                 .spacing(20)
             ))
-            .height(Length::FillPortion(80))
-            .padding(40),
+            .padding(10),
             container(if self.is_saving {
                 GlassButton::new("Saving...").on_press(Message::None) // or a loading indicator
             } else if self.save_success {

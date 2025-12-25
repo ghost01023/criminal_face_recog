@@ -65,10 +65,33 @@ impl GlassmorphismApp {
             Message::InitializePython => {
                 if let Some(ref mut engine) = self.model_engine {
                     let _ = engine.send("start");
+                    let _h = engine.send("hello");
                 }
                 Task::none()
             }
 
+            Message::PythonInput(msg) => {
+                let status_string = self
+                    .model_engine
+                    .as_ref()
+                    .map(|engine| engine.send(&msg))
+                    .map(|res| match res {
+                        Ok(_) => "Success".to_string(),
+                        Err(e) => e.to_string(),
+                    })
+                    .unwrap_or_else(|| "Engine not initialized".to_string());
+                Task::done(Message::PythonOutput(status_string))
+            }
+
+            Message::IdentifyCriminalImage(path) => {
+                let cmd = format!("identify image {}", path);
+                Task::done(Message::PythonInput(cmd))
+            }
+
+            Message::IdentifyCriminalVideo(path) => {
+                let cmd = format!("identify video {}", path);
+                Task::done(Message::PythonInput(cmd))
+            }
             Message::PythonOutput(text) => {
                 eprintln!("[RUST] Python output: {}", text);
 
@@ -88,29 +111,53 @@ impl GlassmorphismApp {
             }
 
             Message::OpenFilePicker => {
-                let filter_name = match self.current_page {
-                    Page::VideoFind => "Videos",
-                    _ => "Images",
-                };
-                let extensions = match self.current_page {
-                    Page::VideoFind => vec!["mp4", "mkv", "webm", "avi"],
-                    _ => vec!["jpg", "png", "jpeg"],
-                };
+                let current_page = self.current_page;
 
                 Task::perform(
                     async move {
-                        let file = rfd::AsyncFileDialog::new()
-                            .add_filter(filter_name, &extensions)
-                            .pick_file()
-                            .await;
+                        match current_page {
+                            Page::ImageFind => {
+                                // Logic for single Video selection
+                                let file = rfd::AsyncFileDialog::new()
+                                    .add_filter("Images", &["jpg", "png", "jpeg", "webm"])
+                                    .pick_file() // Single pick
+                                    .await;
 
-                        file.map(|handle| vec![handle.path().to_path_buf()])
-                            .unwrap_or_default()
+                                file.map(|handle| vec![handle.path().to_path_buf()])
+                                    .unwrap_or_default()
+                            }
+
+                            Page::VideoFind => {
+                                // Logic for single Video selection
+                                let file = rfd::AsyncFileDialog::new()
+                                    .add_filter("Videos", &["mp4", "mkv", "webm", "avi"])
+                                    .pick_file() // Single pick
+                                    .await;
+
+                                file.map(|handle| vec![handle.path().to_path_buf()])
+                                    .unwrap_or_default()
+                            }
+                            _ => {
+                                // Logic for multiple Image selection (Registry/Identify)
+                                let files = rfd::AsyncFileDialog::new()
+                                    .add_filter("Images", &["jpg", "png", "jpeg"])
+                                    .pick_files() // Multiple pick
+                                    .await;
+
+                                files
+                                    .map(|handles| {
+                                        handles
+                                            .into_iter()
+                                            .map(|h| h.path().to_path_buf())
+                                            .collect()
+                                    })
+                                    .unwrap_or_default()
+                            }
+                        }
                     },
                     Message::FilesSelected,
                 )
             }
-
             Message::GoTo(page) => {
                 self.current_page = page;
                 self.image_find.selected_image = Vec::new();
@@ -136,7 +183,6 @@ impl GlassmorphismApp {
                 Page::VideoFind => self.video_find.update(message, self.db.clone()),
                 _ => Task::none(),
             },
-
             _ => match self.current_page {
                 Page::ImageFind => self.image_find.update(message, self.db.clone()),
                 Page::VideoFind => self.video_find.update(message, self.db.clone()),

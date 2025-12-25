@@ -1,5 +1,5 @@
 use crate::Message;
-use iced::widget::{button, container, image, row, text, Stack};
+use iced::widget::{button, column, container, image, row, space, text};
 use iced::{Alignment, Background, Border, Color, Element, Length, Theme};
 
 pub struct GlassImageViewer {
@@ -15,12 +15,9 @@ impl GlassImageViewer {
         }
     }
 
-    // CHANGED: Removed & so it takes ownership (self)
-    // This allows the returned Element to be 'static
     pub fn view(self, next_msg: Message, prev_msg: Message) -> Element<'static, Message> {
         let image_content: Element<Message> =
             if let Some(path) = self.images.get(self.current_index) {
-                // Cloning the path here ensures the image widget owns its data
                 image(path.clone())
                     .width(Length::Fill)
                     .height(Length::Fill)
@@ -33,26 +30,32 @@ impl GlassImageViewer {
                     .into()
             };
 
-        // Navigation Buttons Overlay
         let controls = row![
-            button(text("<"))
+            button(text("Prev"))
                 .on_press(prev_msg)
                 .style(Self::nav_button_style),
-            button(text(">"))
+            space().width(20.0),
+            button(text("Next"))
                 .on_press(next_msg)
                 .style(Self::nav_button_style),
         ]
         .width(Length::Fill)
-        .padding(20)
+        .padding(10)
         .align_y(Alignment::Center);
 
-        let viewer_stack = Stack::new().push(image_content).push(
-            container(controls)
+        let viewer_layout = column![
+            container(image_content)
+                .width(Length::Fill)
                 .height(Length::Fill)
+                .center_x(Length::Fill)
                 .center_y(Length::Fill),
-        );
+            space().height(20.0),
+            container(controls)
+                .width(Length::Fill)
+                .height(Length::Shrink)
+        ];
 
-        container(viewer_stack)
+        container(viewer_layout)
             .width(Length::Fill)
             .height(Length::Fill)
             .style(|_theme: &Theme| container::Style {
@@ -75,14 +78,14 @@ impl GlassImageViewer {
             background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.5))),
             text_color: Color::WHITE,
             border: Border {
-                radius: 40.0.into(),
+                radius: 10.0.into(),
                 ..Default::default()
             },
             ..Default::default()
         };
 
         match status {
-            iced::widget::button::Status::Hovered => iced::widget::button::Style {
+            iced::widget::button::Status::Hovered { .. } => iced::widget::button::Style {
                 background: Some(Background::Color(Color::from_rgba(0.4, 0.9, 0.5, 0.4))),
                 ..base
             },
