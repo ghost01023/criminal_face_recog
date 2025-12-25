@@ -3,6 +3,7 @@ pub mod database;
 pub mod entities;
 pub mod pages;
 pub mod python_process;
+pub mod webcam_task;
 
 use crate::database::CriminalDB;
 use std::path::PathBuf;
@@ -15,6 +16,7 @@ pub enum Page {
     Registry,
     ImageFind,
     VideoFind,
+    WebcamFind,
     SignIn,
 }
 
@@ -23,7 +25,11 @@ pub enum Message {
     None,
     // --- Page Navigation ---
     GoTo(Page),
-
+    TickWebcam,
+    CaptureWebcamFrame,
+    WebcamFrameCaptured(String), // The path to the temp file
+    ToggleWebcam(bool),
+    ResetWebcamSearch,
     ResetForm,
     DatabaseSaved(u32, Vec<String>),
     // --- Registry Form Inputs ---

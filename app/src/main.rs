@@ -1,6 +1,7 @@
 use app::database::CriminalDB;
 use app::pages::*;
 use app::python_process::{python_sub, PythonProcess};
+use app::webcam_task::capture_frame;
 use app::Message;
 use app::Page;
 
@@ -12,6 +13,7 @@ pub struct GlassmorphismApp {
     registry_state: RegistryPage,
     image_find: ImageFindPage,
     video_find: VideoFindPage,
+    webcam_find: WebcamFindPage,
     model_engine: Option<PythonProcess>,
     db: Option<Arc<CriminalDB>>,
 }
@@ -31,6 +33,7 @@ impl GlassmorphismApp {
             registry_state: RegistryPage::default(),
             image_find: ImageFindPage::default(),
             video_find: VideoFindPage::default(),
+            webcam_find: WebcamFindPage::new(),
             model_engine: engine,
             db: None,
         };
@@ -159,6 +162,10 @@ impl GlassmorphismApp {
                 )
             }
             Message::GoTo(page) => {
+                if self.current_page == Page::WebcamFind {
+                    self.current_page = page;
+                    return Task::done(Message::ToggleWebcam(false));
+                }
                 self.current_page = page;
                 self.image_find.selected_image = Vec::new();
                 Task::none()
@@ -173,6 +180,7 @@ impl GlassmorphismApp {
                 match self.current_page {
                     Page::ImageFind => self.image_find.update(message, self.db.clone()),
                     Page::VideoFind => self.video_find.update(message, self.db.clone()),
+                    Page::WebcamFind => self.webcam_find.update(message, self.db.clone()), // Add this
                     _ => Task::none(),
                 }
             }
@@ -183,6 +191,30 @@ impl GlassmorphismApp {
                 Page::VideoFind => self.video_find.update(message, self.db.clone()),
                 _ => Task::none(),
             },
+
+            Message::TickWebcam => {
+                // Delegate to the webcam page to check if it's ready to scan
+                self.webcam_find.update(message, self.db.clone())
+            }
+
+            Message::CaptureWebcamFrame => {
+                // Trigger the actual hardware task
+                Task::perform(capture_frame(), Message::WebcamFrameCaptured)
+            }
+
+            Message::WebcamFrameCaptured(path) => {
+                // Pass the path to the webcam page to trigger the Python scan
+                self.webcam_find
+                    .update(Message::WebcamFrameCaptured(path), self.db.clone())
+            }
+
+            Message::ToggleWebcam(on) => self
+                .webcam_find
+                .update(Message::ToggleWebcam(on), self.db.clone()),
+
+            Message::ResetWebcamSearch => self
+                .webcam_find
+                .update(Message::ResetWebcamSearch, self.db.clone()),
             _ => match self.current_page {
                 Page::ImageFind => self.image_find.update(message, self.db.clone()),
                 Page::VideoFind => self.video_find.update(message, self.db.clone()),
@@ -199,12 +231,21 @@ impl GlassmorphismApp {
             Page::MainMenu => MainMenu::view(),
             Page::ImageFind => self.image_find.view(),
             Page::VideoFind => self.video_find.view(),
+            Page::WebcamFind => self.webcam_find.view(),
             _ => iced::widget::text("New page").into(),
         }
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        python_sub()
+        let python_sub = python_sub();
+
+        let webcam_sub = if self.current_page == Page::WebcamFind && self.webcam_find.is_webcam_on {
+            iced::time::every(std::time::Duration::from_secs(2)).map(|_| Message::TickWebcam)
+        } else {
+            Subscription::none()
+        };
+
+        Subscription::batch(vec![python_sub, webcam_sub])
     }
 
     pub fn theme(&self) -> Theme {

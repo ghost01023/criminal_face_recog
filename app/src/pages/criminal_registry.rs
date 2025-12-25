@@ -2,11 +2,12 @@ use crate::components::GlassButton;
 use crate::components::GlassImageViewer;
 use crate::components::GlassInputLabel;
 use crate::components::GlassTextInput;
+use crate::Page;
 
 use crate::database::CriminalDB;
 use crate::Message;
 use iced::{
-    widget::{column, container, row, scrollable},
+    widget::{column, container, row, scrollable, space},
     Alignment, Element, Length, Task,
 };
 use std::sync::Arc;
@@ -131,13 +132,11 @@ impl RegistryPage {
             }
             Message::NextImage => {
                 if !self.selected_images.is_empty() {
-                    // Circular increment
                     self.current_img_idx = (self.current_img_idx + 1) % self.selected_images.len();
                 }
             }
             Message::PrevImage => {
                 if !self.selected_images.is_empty() {
-                    // Circular decrement
                     if self.current_img_idx == 0 {
                         self.current_img_idx = self.selected_images.len() - 1;
                     } else {
@@ -154,13 +153,13 @@ impl RegistryPage {
         let top_left_content: Element<Message> = if self.selected_images.is_empty() {
             column![
                 GlassInputLabel::new("Suspect Images").size(20),
+                space().height(10.0),
                 GlassButton::new("Attach Photos").on_press(Message::OpenFilePicker),
             ]
             .align_x(Alignment::Center)
-            .spacing(10)
             .into()
         } else {
-            self.image_viewer_logic().into()
+            self.image_viewer_logic()
         };
 
         let left_col = column![container(top_left_content)
@@ -171,37 +170,42 @@ impl RegistryPage {
         .width(Length::FillPortion(40));
 
         let right_col = column![
-            container(scrollable(
-                column![
-                    GlassInputLabel::new("Criminal Details").size(42),
-                    self.field_group(
-                        if self.name_error { "Name *" } else { "Name" },
-                        &self.name,
-                        Message::NameChanged
-                    ),
-                    self.field_group(
-                        "Father's Name",
-                        &self.fathers_name,
-                        Message::FathersNameChanged
-                    ),
-                    self.field_group(
-                        "No. of Violations",
-                        &self.no_of_crimes,
-                        Message::CrimesCountChanged
-                    ),
-                    self.field_group(
-                        "Last Arrested Location",
-                        &self.arrested_location,
-                        Message::LocationChanged
-                    ),
-                ]
-                .spacing(20)
-            ))
-            .padding(10),
+            // Header Row with Back Button
+            GlassInputLabel::new("Criminal Details").size(32),
+            space().height(20.0),
+            container(scrollable(column![
+                self.field_group(
+                    if self.name_error { "Name *" } else { "Name" },
+                    &self.name,
+                    Message::NameChanged
+                ),
+                space().height(20.0),
+                self.field_group(
+                    "Father's Name",
+                    &self.fathers_name,
+                    Message::FathersNameChanged
+                ),
+                space().height(20.0),
+                self.field_group(
+                    "No. of Violations",
+                    &self.no_of_crimes,
+                    Message::CrimesCountChanged
+                ),
+                space().height(20.0),
+                self.field_group(
+                    "Last Arrested Location",
+                    &self.arrested_location,
+                    Message::LocationChanged
+                ),
+            ])),
+            row![GlassButton::new("← Back").on_press(Message::GoTo(Page::MainMenu)),]
+                .padding(10)
+                .align_y(Alignment::Center),
+            // Footer Action Area
             container(if self.is_saving {
-                GlassButton::new("Saving...").on_press(Message::None) // or a loading indicator
+                GlassButton::new("Saving...").on_press(Message::None)
             } else if self.save_success {
-                GlassButton::new("Saved! (Reset)").on_press(Message::ResetForm)
+                GlassButton::new("Saved! (Reset Form)").on_press(Message::ResetForm)
             } else {
                 GlassButton::new("Save to Database").on_press(Message::SubmitForm)
             })
@@ -215,10 +219,9 @@ impl RegistryPage {
         row![left_col, right_col].into()
     }
 
-    fn image_viewer_logic(&self) -> Element<'_, Message> {
+    fn image_viewer_logic(&self) -> Element<'static, Message> {
         GlassImageViewer::new(self.selected_images.clone(), self.current_img_idx)
             .view(Message::NextImage, Message::PrevImage)
-            .into()
     }
 
     fn field_group<'a>(
@@ -229,9 +232,9 @@ impl RegistryPage {
     ) -> Element<'a, Message> {
         column![
             GlassInputLabel::new(label).size(12),
+            space().height(8.0),
             GlassTextInput::new(label, value).on_input(on_change),
         ]
-        .spacing(8)
         .into()
     }
 }

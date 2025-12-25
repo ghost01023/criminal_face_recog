@@ -25,12 +25,20 @@ impl MainMenu {
         let video_find_btn = GlassButton::new("3. Video Analytics / Tracking")
             .on_press(Message::GoTo(Page::VideoFind));
 
+        let webcam_find_btn =
+            GlassButton::new("4. Webcam Search").on_press(Message::GoTo(Page::WebcamFind));
         let sign_in_btn =
             GlassButton::new("4. Operator Sign-In / Logs").on_press(Message::GoTo(Page::SignIn));
 
-        let menu_items = column![registry_btn, image_find_btn, video_find_btn, sign_in_btn,]
-            .spacing(20)
-            .width(Length::Fixed(400.0));
+        let menu_items = column![
+            registry_btn,
+            image_find_btn,
+            video_find_btn,
+            webcam_find_btn,
+            sign_in_btn
+        ]
+        .spacing(20)
+        .width(Length::Fixed(400.0));
 
         let content = column![title, subtitle, menu_items,]
             .align_x(Alignment::Center)

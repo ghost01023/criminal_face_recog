@@ -16,6 +16,7 @@ futures = "0.3"
 mpsc = "0.2.6"
 iced_video_player = "0.6.0"
 url = "2.5.7"
+nokhwa = { version = "0.10.10", features = ["input-native"] }
 
 [dependencies.zune-jpeg]
 version = "0.5.7"
