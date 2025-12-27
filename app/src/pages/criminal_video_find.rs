@@ -17,12 +17,13 @@ use url::Url;
 
 pub struct VideoFindPage {
     pub selected_video: Option<String>,
-    pub video: Option<Video>, // Store the Video
+    pub video: Option<Video>,
     pub is_scanning: bool,
     pub show_details: bool,
     pub identified_data: Option<criminal::Model>,
+    pub suspect_photos: Vec<String>, // File paths in project_root/temp_identify
+    pub current_photo_index: usize,
 }
-
 impl Default for VideoFindPage {
     fn default() -> Self {
         Self {
@@ -30,6 +31,8 @@ impl Default for VideoFindPage {
             video: None,
             is_scanning: false,
             show_details: false,
+            suspect_photos: Vec::new(),
+            current_photo_index: 0,
             identified_data: None,
         }
     }
@@ -41,76 +44,113 @@ impl VideoFindPage {
             Message::FilesSelected(paths) => {
                 if let Some(path) = paths.first() {
                     let path_str = path.to_string_lossy().to_string();
-
-                    // Load the video
                     let path_buf = PathBuf::from(&path_str);
                     if let Ok(url) = Url::from_file_path(&path_buf) {
-                        match Video::new(&url) {
-                            Ok(video) => {
-                                self.selected_video = Some(path_str.clone());
-                                self.video = Some(video);
-                                self.is_scanning = true;
-                                self.show_details = false;
-                                self.identified_data = None;
-
-                                return Task::done(Message::IdentifyCriminalVideo(path_str));
-                            }
-                            Err(err) => {
-                                eprintln!("Failed to load video: {:?}", err);
-                            }
+                        if let Ok(video) = Video::new(&url) {
+                            self.selected_video = Some(path_str.clone());
+                            self.video = Some(video);
+                            self.is_scanning = true;
+                            self.show_details = false;
+                            self.identified_data = None;
+                            self.suspect_photos = Vec::new();
+                            return Task::done(Message::IdentifyCriminalVideo(path_str));
                         }
-                    } else {
-                        eprintln!("Failed to convert path to URL");
                     }
                 }
             }
 
             Message::Identity(criminal_id_str) => {
-                self.is_scanning = true;
                 let id = criminal_id_str.parse::<u32>().unwrap_or(0);
-
                 if let Some(database) = db {
                     return Task::perform(
-                        async move { database.get_criminal(id).await },
+                        async move { database.get_criminal_with_photos(id).await },
                         |result| match result {
-                            Ok(Some(model)) => Message::IdentityDataLoaded(model),
-                            _ => Message::IdentityError("Criminal Record Not Found".to_string()),
+                            Ok(Some((model, photos))) => {
+                                Message::IdentityDataLoadedWithPhotos(model, photos)
+                            }
+                            _ => Message::IdentityError("Record not found".to_string()),
                         },
                     );
                 }
             }
 
-            Message::IdentityDataLoaded(model) => {
+            Message::IdentityDataLoadedWithPhotos(model, photos) => {
                 self.is_scanning = false;
                 self.show_details = true;
                 self.identified_data = Some(model);
+                self.current_photo_index = 0;
+
+                // Prepare temp directory
+                let temp_dir = std::path::Path::new("temp_identify");
+                let _ = std::fs::create_dir_all(temp_dir);
+
+                // Save photos to disk and store paths
+                self.suspect_photos = photos
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(i, photo_model)| {
+                        let file_name = format!("suspect_{}_{}.jpg", photo_model.criminal_id, i);
+                        let file_path = temp_dir.join(file_name);
+
+                        if std::fs::write(&file_path, photo_model.photo).is_ok() {
+                            Some(file_path.to_string_lossy().to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
             }
 
-            Message::IdentityError(err) => {
-                self.is_scanning = false;
-                eprintln!("Database Error: {}", err);
+            Message::NextImage => {
+                if !self.suspect_photos.is_empty() {
+                    self.current_photo_index =
+                        (self.current_photo_index + 1) % self.suspect_photos.len();
+                }
+            }
+
+            Message::PrevImage => {
+                if !self.suspect_photos.is_empty() {
+                    self.current_photo_index = if self.current_photo_index == 0 {
+                        self.suspect_photos.len() - 1
+                    } else {
+                        self.current_photo_index - 1
+                    };
+                }
             }
 
             _ => {}
         }
         Task::none()
     }
-
     pub fn view(&self) -> Element<'_, Message> {
         // --- LEFT SIDE: 60% Width ---
-        let left_content: Element<Message> =
-            if let (Some(ref video), Some(ref path)) = (&self.video, &self.selected_video) {
-                // Create VideoViewer on the fly with references
-                VideoViewer::new(video, path.clone()).view()
-            } else {
-                column![
-                    GlassInputLabel::new("NO VIDEO SOURCE").size(20),
-                    GlassButton::new("Select Video File").on_press(Message::OpenFilePicker),
-                ]
-                .align_x(Alignment::Center)
-                .spacing(15)
-                .into()
-            };
+        let left_content: Element<Message> = if self.show_details && !self.suspect_photos.is_empty()
+        {
+            // Replace Video with Image Viewer
+            column![
+                text("DATABASE ARCHIVE: REGISTERED PHOTOS")
+                    .size(14)
+                    .color(Color::from_rgba(1.0, 1.0, 1.0, 0.5)),
+                Space::new().height(10.0),
+                crate::components::GlassImageViewer::new(
+                    self.suspect_photos.clone(),
+                    self.current_photo_index
+                )
+                .view(Message::NextImage, Message::PrevImage)
+            ]
+            .align_x(Alignment::Center)
+            .into()
+        } else if let (Some(ref video), Some(ref path)) = (&self.video, &self.selected_video) {
+            VideoViewer::new(video, path.clone()).view()
+        } else {
+            column![
+                GlassInputLabel::new("NO VIDEO SOURCE").size(20),
+                GlassButton::new("Select Video File").on_press(Message::OpenFilePicker),
+            ]
+            .align_x(Alignment::Center)
+            .spacing(15)
+            .into()
+        };
 
         let left_side = container(left_content)
             .width(Length::FillPortion(60))
@@ -139,7 +179,6 @@ impl VideoFindPage {
 
         row![left_side, right_side].into()
     }
-
     fn details_view(&self, data: &criminal::Model) -> Element<'_, Message> {
         column![
             text("TARGET IDENTIFIED")

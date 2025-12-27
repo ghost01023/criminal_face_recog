@@ -20,7 +20,7 @@ pub struct GlassmorphismApp {
 
 impl GlassmorphismApp {
     pub fn new() -> (Self, Task<Message>) {
-        let db_url = "mysql://root:@localhost:3306/criminal_recognizer".to_string();
+        let db_url = "mysql://crim_user:@localhost:3306/criminal_recognizer".to_string();
 
         let engine = PythonProcess::spawn(
             "main.py",
@@ -41,6 +41,7 @@ impl GlassmorphismApp {
         let init_task = Task::batch(vec![
             Task::perform(
                 async move {
+                    println!("connecting to db");
                     CriminalDB::new(&db_url)
                         .await
                         .map(Arc::new)
@@ -172,7 +173,9 @@ impl GlassmorphismApp {
             }
 
             Message::DbConnected(Ok(db_arc)) => {
+                println!("SETTING UP DATABASE");
                 self.db = Some(db_arc);
+                println!("Connected to the database");
                 Task::none()
             }
 

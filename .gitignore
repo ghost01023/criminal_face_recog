@@ -8,3 +8,5 @@ model_engine/*.jpeg
 model_engine/*.mp4
 model_engine/*.log
 model_engine/*.npz
+app/temp/
+app/temp_identify/

@@ -1,16 +1,35 @@
 use crate::entities::{criminal, criminal_photo};
 use chrono::Utc;
 use sea_orm::*;
+use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct CriminalDB {
-    pub connection: DatabaseConnection,
+    pub connection: Arc<DatabaseConnection>,
 }
 
 impl CriminalDB {
     pub async fn new(db_url: &str) -> Result<Self, DbErr> {
-        let connection = Database::connect(db_url).await?;
-        Ok(Self { connection })
+        println!("Attempting to connect to DB");
+
+        let mut opt = ConnectOptions::new(db_url.to_owned());
+        opt.max_connections(10)
+            .min_connections(2)
+            .connect_timeout(Duration::from_secs(10))
+            .idle_timeout(Duration::from_secs(300))
+            .sqlx_logging(true);
+
+        let connection = Database::connect(opt).await.map_err(|err| {
+            eprintln!("❌ Database connection failed: {err}");
+            err
+        })?;
+
+        println!("✅ Database connection established");
+
+        Ok(Self {
+            connection: Arc::new(connection),
+        })
     }
 
     pub async fn add_criminal(
@@ -30,40 +49,40 @@ impl CriminalDB {
         };
 
         let result = criminal::Entity::insert(new_criminal)
-            .exec(&self.connection)
+            .exec(self.connection.as_ref())
             .await?;
+
         Ok(result.last_insert_id)
     }
 
     pub async fn get_criminal(&self, id: u32) -> Result<Option<criminal::Model>, DbErr> {
         criminal::Entity::find()
             .filter(criminal::Column::CriminalId.eq(id))
-            .one(&self.connection)
+            .one(self.connection.as_ref())
             .await
     }
 
-    /// Get all photos for a criminal
     pub async fn get_criminal_photos(
         &self,
         criminal_id: u32,
     ) -> Result<Vec<criminal_photo::Model>, DbErr> {
         criminal_photo::Entity::find()
             .filter(criminal_photo::Column::CriminalId.eq(criminal_id))
-            .all(&self.connection)
+            .all(self.connection.as_ref())
             .await
     }
 
-    /// Optional: Get criminal along with photos using relation
     pub async fn get_criminal_with_photos(
         &self,
         id: u32,
     ) -> Result<Option<(criminal::Model, Vec<criminal_photo::Model>)>, DbErr> {
-        if let Some(criminal) = self.get_criminal(id).await? {
-            let photos = self.get_criminal_photos(id).await?;
-            Ok(Some((criminal, photos)))
-        } else {
-            Ok(None)
-        }
+        let criminal = match self.get_criminal(id).await? {
+            Some(c) => c,
+            None => return Ok(None),
+        };
+
+        let photos = self.get_criminal_photos(id).await?;
+        Ok(Some((criminal, photos)))
     }
 
     pub async fn add_criminal_photo(
@@ -78,8 +97,9 @@ impl CriminalDB {
         };
 
         let result = criminal_photo::Entity::insert(new_photo)
-            .exec(&self.connection)
+            .exec(self.connection.as_ref())
             .await?;
+
         Ok(result.last_insert_id)
     }
 }

@@ -25,6 +25,10 @@ pub enum Message {
     None,
     // --- Page Navigation ---
     GoTo(Page),
+    IdentityDataLoadedWithPhotos(
+        entities::criminal::Model,
+        Vec<entities::criminal_photo::Model>,
+    ),
     TickWebcam,
     CaptureWebcamFrame,
     WebcamFrameCaptured(String), // The path to the temp file
