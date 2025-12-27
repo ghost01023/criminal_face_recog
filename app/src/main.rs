@@ -106,7 +106,10 @@ impl GlassmorphismApp {
                 let parts: Vec<&str> = text.split_whitespace().collect();
                 if parts.get(0) == Some(&"identity") {
                     if let Some(identity_val) = parts.get(1).map(|s| s.to_string()) {
-                        if matches!(self.current_page, Page::ImageFind | Page::VideoFind) {
+                        if matches!(
+                            self.current_page,
+                            Page::ImageFind | Page::VideoFind | Page::WebcamFind
+                        ) {
                             return Task::done(Message::Identity(identity_val));
                         }
                     }
@@ -182,16 +185,28 @@ impl GlassmorphismApp {
             Message::Identity(_) | Message::IdentityDataLoaded(_) | Message::IdentityError(_) => {
                 match self.current_page {
                     Page::ImageFind => self.image_find.update(message, self.db.clone()),
-                    Page::VideoFind => self.video_find.update(message, self.db.clone()),
                     Page::WebcamFind => self.webcam_find.update(message, self.db.clone()), // Add this
                     _ => Task::none(),
                 }
+            }
+
+            Message::IdentityDataLoadedWithPhotos(_, _) => {
+                if self.current_page == Page::WebcamFind {
+                    return self.webcam_find.update(message, self.db.clone());
+                }
+                Task::none()
             }
 
             Message::FilesSelected(_) => match self.current_page {
                 Page::Registry => self.registry_state.update(message, self.db.clone()),
                 Page::ImageFind => self.image_find.update(message, self.db.clone()),
                 Page::VideoFind => self.video_find.update(message, self.db.clone()),
+                _ => Task::none(),
+            },
+
+            Message::PrevImage | Message::NextImage => match self.current_page {
+                Page::VideoFind => self.video_find.update(message, self.db.clone()),
+                Page::WebcamFind => self.webcam_find.update(message, self.db.clone()),
                 _ => Task::none(),
             },
 
@@ -202,8 +217,13 @@ impl GlassmorphismApp {
 
             Message::CaptureWebcamFrame => {
                 // Trigger the actual hardware task
+                println!("CAPTURING WEB FRAME");
                 Task::perform(capture_frame(), Message::WebcamFrameCaptured)
             }
+
+            Message::TriggerWebcamCapture => self
+                .webcam_find
+                .update(Message::TriggerWebcamCapture, self.db.clone()),
 
             Message::WebcamFrameCaptured(path) => {
                 // Pass the path to the webcam page to trigger the Python scan
@@ -247,7 +267,6 @@ impl GlassmorphismApp {
         } else {
             Subscription::none()
         };
-
         Subscription::batch(vec![python_sub, webcam_sub])
     }
 

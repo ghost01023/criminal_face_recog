@@ -31,6 +31,7 @@ pub enum Message {
     ),
     TickWebcam,
     CaptureWebcamFrame,
+    TriggerWebcamCapture,
     WebcamFrameCaptured(String), // The path to the temp file
     ToggleWebcam(bool),
     ResetWebcamSearch,

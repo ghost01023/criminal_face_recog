@@ -2,3 +2,5 @@
 .env
 /src/*.png
 /src/*.jpg
+/temp_webcam_identify/
+/webframe_capture/

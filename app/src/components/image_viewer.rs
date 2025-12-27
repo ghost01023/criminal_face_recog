@@ -9,6 +9,10 @@ pub struct GlassImageViewer {
 
 impl GlassImageViewer {
     pub fn new(images: Vec<String>, current_index: usize) -> Self {
+        println!("Images inside the glassimage viewer are:");
+        for el in images.clone() {
+            println!("{}", el);
+        }
         Self {
             images,
             current_index,
